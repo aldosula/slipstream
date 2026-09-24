@@ -48,9 +48,9 @@ Wi-Fi, USB and Multipath need Slipstream Hub on the PC. Bluetooth does not.
 
 Windows 10 (1903 or later) or Windows 11, 64-bit.
 
-1. **Get Slipstream Hub.** Take `Slipstream-Hub-0.1.0-win-x64.exe` from the `dist` folder (or build it,
+1. **Get Slipstream Hub.** Download `Slipstream-Hub-0.1.0-win-x64.exe` from this repository's Releases page (or build it,
    see [Build from source](#build-from-source)). It is a single self-contained file: no .NET install is
-   needed. To check the file, compare its hash with `dist/SHA256SUMS.txt`. In PowerShell:
+   needed. To check the file, compare its hash with `SHA256SUMS.txt` from the same release. In PowerShell:
    `Get-FileHash .\Slipstream-Hub-0.1.0-win-x64.exe -Algorithm SHA256`.
    The exe is not code-signed, so Windows SmartScreen may warn on first start. Choose **More info**,
    then **Run anyway**, only for a file whose hash you checked.
@@ -85,7 +85,7 @@ choose **Quit**.
 
 Android 8.0 or later.
 
-1. **Copy the APK to the phone.** Take `Slipstream-Wheel-0.1.0-debug.apk` from the `dist` folder and
+1. **Copy the APK to the phone.** Download `Slipstream-Wheel-0.1.0-debug.apk` from the Releases page and
    copy it over the USB cable (file transfer mode), or install it from the PC with
    `adb install Slipstream-Wheel-0.1.0-debug.apk` once USB debugging is on (step 3).
 2. **Allow unknown sources.** Open the APK in the phone's file manager. Android asks to allow that app
