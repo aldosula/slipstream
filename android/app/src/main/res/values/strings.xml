@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Slipstream Wheel</string>
+    <string name="tagline">Your phone is the wheel. Your PC is the car.</string>
+    <string name="settings">Settings</string>
+
+    <string name="section_pairing">Pairing</string>
+    <string name="section_hubs">Hubs on this network</string>
+    <string name="section_connection">Connection</string>
+
+    <string name="not_paired">Not paired yet</string>
+    <string name="not_paired_detail">Open Slipstream Hub on the PC and scan its QR code, or type the code it shows.</string>
+    <string name="paired_with">Paired with %1$s</string>
+    <string name="paired_detail">Key fingerprint %1$s. The code never leaves this phone.</string>
+    <string name="scan_qr">Scan QR</string>
+    <string name="enter_code">Enter code</string>
+    <string name="forget">Forget</string>
+
+    <string name="hubs_searching">Looking for Slipstream Hub on this network. Start the hub on the PC; phone and PC must share the Wi-Fi, the phone\'s hotspot or USB tethering.</string>
+    <string name="hub_paired">Paired</string>
+    <string name="hub_other_code">Other code</string>
+    <string name="hub_selected">In use</string>
+
+    <string name="mode_wifi">Wi-Fi</string>
+    <string name="mode_wifi_hint">UDP over the local network. Best on 5 GHz or the phone\'s own hotspot.</string>
+    <string name="mode_usb">USB cable</string>
+    <string name="mode_usb_hint">About 1 ms and lossless. Needs USB debugging on; the hub sets up adb reverse.</string>
+    <string name="mode_multipath">Multipath, Wi-Fi and USB</string>
+    <string name="mode_multipath_hint">Recommended. The same packet on both paths; the first to arrive wins.</string>
+    <string name="mode_bluetooth">Bluetooth gamepad</string>
+    <string name="mode_bluetooth_hint">The phone pairs with Windows as a game controller. No hub needed.</string>
+    <string name="experimental">Experimental</string>
+    <string name="recommended">Recommended</string>
+
+    <string name="drive">Drive</string>
+    <string name="drive_hint_bt">Bluetooth gamepad: pairing happens in Windows Bluetooth settings.</string>
+    <string name="drive_hint_need_code">Pair with the hub first.</string>
+    <string name="drive_hint_need_host">Waiting for the hub to appear on the network, or scan its QR code.</string>
+    <string name="drive_hint_target">Hub at %1$s</string>
+    <string name="drive_hint_usb">Over the USB cable through adb reverse.</string>
+    <string name="drive_hint_multipath_usb_only">No hub seen on Wi-Fi yet: USB only, and Wi-Fi joins as soon as the hub appears.</string>
+
+    <string name="code_title">Pairing code</string>
+    <string name="code_message">Type the 16 character code shown by Slipstream Hub. Dashes and spaces are optional.</string>
+    <string name="code_hint">ABCD-EFGH-IJKL-MNOP</string>
+    <string name="code_invalid">That is not a valid code. It has 16 characters from A to Z and 2 to 7.</string>
+    <string name="code_mismatch">Saved. This code does not match %1$s, so it will not connect to that hub.</string>
+    <string name="pair">Pair</string>
+    <string name="cancel">Cancel</string>
+    <string name="qr_prompt">Point the camera at the QR code in Slipstream Hub</string>
+    <string name="qr_invalid">That QR code is not a Slipstream pairing code.</string>
+    <string name="paired_toast">Paired with %1$s</string>
+
+    <string name="bt_title">Bluetooth gamepad</string>
+    <string name="bt_unsupported">This phone does not offer the Bluetooth HID device profile (Android 9 or later, and some makers disable it). Use Wi-Fi or USB instead.</string>
+    <string name="bt_no_permission">Bluetooth permission is needed to act as a gamepad. If it was refused for good, allow Nearby devices in the app settings.</string>
+    <string name="bt_off">Bluetooth is off. Turn it on and the gamepad starts by itself.</string>
+    <string name="bt_starting">Starting the gamepad profile.</string>
+    <string name="bt_waiting">Ready. On the PC open Settings, Bluetooth and devices, Add device, and pick Slipstream Wheel.</string>
+    <string name="bt_connected">Connected to %1$s</string>
+    <string name="bt_discoverable">Make visible</string>
+    <string name="bt_grant">Allow</string>
+    <string name="bt_open_settings">Open settings</string>
+    <string name="bt_turn_on">Turn on Bluetooth</string>
+
+</resources>

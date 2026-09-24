@@ -85,7 +85,7 @@
         "clutch": 40000,
         "handbrake": 65535,
         "aux": 0,
-        "buttons": 2147483649,
+        "buttons": 8388609,
         "pulses": [
           3,
           255,
@@ -99,7 +99,7 @@
         "flags": 5,
         "rtt_100us": 42
       },
-      "hex": "534c01014d3c2b1a02000000e5d45b070180ffffd204409cffff00000100008003ff00010204081005002a0095a1727cc0660fef"
+      "hex": "534c01014d3c2b1a02000000e5d45b070180ffffd204409cffff00000100800003ff00010204081005002a00e31edf4b11fac127"
     },
     {
       "fields": {
@@ -175,7 +175,7 @@
   },
   "tamper": {
     "note": "input[1] with byte 16 (steer low byte) xor 0x01; tag must fail",
-    "hex": "534c01014d3c2b1a02000000e5d45b070080ffffd204409cffff00000100008003ff00010204081005002a0095a1727cc0660fef"
+    "hex": "534c01014d3c2b1a02000000e5d45b070080ffffd204409cffff00000100800003ff00010204081005002a00e31edf4b11fac127"
   },
   "seq_newer": [
     {

@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Slipstream.Core</RootNamespace>
+    <AssemblyName>Slipstream.Core</AssemblyName>
+    <Description>Slipstream Link Protocol v1, link session, transports and output mapping. Cross-platform, no Windows APIs.</Description>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Slipstream.Core.Tests" />
+  </ItemGroup>
+
+</Project>

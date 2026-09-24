@@ -113,6 +113,10 @@ second (each UDP source address, each TCP connection).
 **RTT at the phone:** `rtt_us = (now_us - echo_t_us) - hold_us`, computed with u32 wrapping
 subtraction. Only valid when `epoch` equals the phone's epoch. Smooth with an EWMA
 (alpha = 1/8) for display; keep min and max over the last 5 s.
+`hold_us` is not bounded by the STATUS period: on the slower path of a multipath link it can
+exceed 1 s. It is always subtracted, so RTT stays correct. In multipath, STATUS goes out on
+every live path but `echo_t_us` belongs to the copy that arrived first, so a path's figure is
+"fastest path forward plus this path back". The phone shows the smallest live-path RTT.
 
 **Loss at the phone:** `missing / (accepted + missing)` over the epoch, and also as a delta
 between consecutive STATUS packets for a "last second" figure.
@@ -138,7 +142,9 @@ beacon whose fingerprint matches.
 Each message is `u16 length` followed by `length` bytes of one INPUT or STATUS packet.
 Both ends set `TCP_NODELAY`. A frame whose length is not 52 (hub side) or 44 (phone side)
 closes the connection. The hub listens on `127.0.0.1` only; the phone connects to
-`127.0.0.1:47802`, which `adb reverse tcp:47802 tcp:47802` tunnels to the PC.
+`127.0.0.1:47802`, which `adb reverse tcp:47802 tcp:47802` tunnels to the PC. The phone must
+dial the IPv4 literal `127.0.0.1`; the platform loopback on Android is `::1`, which the tunnel
+does not serve.
 
 ## 9. Receiver rules at the hub (normative)
 
@@ -160,6 +166,8 @@ closes the connection. The hub listens on `127.0.0.1` only; the phone connects t
 6. **Failsafe.** If no packet is accepted for `failsafe_ms` (default 200 ms), or the packet
    has `PAUSED`: throttle, brake, clutch, handbrake = 0, all held buttons released, queued
    pulses finish normally. Steering holds its last value on failsafe, and centers on `PAUSED`.
+   When both apply (the last packet was `PAUSED` and the link then went silent), `PAUSED`
+   wins: steering stays centered. Pulse increments carried by a `PAUSED` packet still count.
 
 ## 10. Output mapping (normative defaults)
 

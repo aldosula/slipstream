@@ -1,0 +1,319 @@
+<Window x:Class="Slipstream.Hub.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="clr-namespace:Slipstream.Hub.Ui"
+        Title="Slipstream Hub"
+        Icon="pack://application:,,,/Assets/slipstream.ico"
+        Width="1240" Height="840" MinWidth="1000" MinHeight="640"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource Brush.Bg}"
+        Foreground="{StaticResource Brush.Text}"
+        FontFamily="{StaticResource Font.Ui}"
+        UseLayoutRounding="True"
+        TextOptions.TextFormattingMode="Display">
+
+    <Grid Margin="24,16,24,8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Grid Grid.Row="0" Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Image x:Name="LogoImage" Width="30" Height="30" VerticalAlignment="Center" RenderOptions.BitmapScalingMode="HighQuality" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
+                <TextBlock Text="Slipstream Hub" Style="{StaticResource Text.Title}" VerticalAlignment="Center" />
+                <TextBlock x:Name="HubNameText" Style="{StaticResource Text.Label}" FontSize="13" Margin="14,2,0,0" VerticalAlignment="Center" />
+            </StackPanel>
+            <Border Grid.Column="2" Background="{StaticResource Brush.Surface}" BorderBrush="{StaticResource Brush.Stroke}" BorderThickness="1"
+                    CornerRadius="18" Padding="14,8" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal">
+                    <Ellipse x:Name="StateDot" Width="10" Height="10" Fill="{StaticResource Brush.TextFaint}" VerticalAlignment="Center" />
+                    <TextBlock x:Name="StateText" Text="Waiting for the phone" Style="{StaticResource Text.Cell}" FontWeight="SemiBold" Margin="10,0,0,0" />
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="372" />
+                <ColumnDefinition Width="20" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Left column: pairing and output -->
+            <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False">
+                <StackPanel>
+                    <Border Style="{StaticResource Section}">
+                        <StackPanel>
+                            <TextBlock Text="Pair a phone" Style="{StaticResource Text.Section}" />
+                            <Border Background="White" CornerRadius="12" Padding="8" HorizontalAlignment="Center">
+                                <Image x:Name="QrImage" Width="256" Height="256" RenderOptions.BitmapScalingMode="NearestNeighbor"
+                                       ToolTip="Scan with Slipstream Wheel" />
+                            </Border>
+                            <TextBlock Text="Pairing code" Style="{StaticResource Text.Label}" Margin="0,18,0,4" />
+                            <TextBlock x:Name="CodeText" FontFamily="{StaticResource Font.Mono}" FontSize="26" FontWeight="SemiBold"
+                                       Foreground="{StaticResource Brush.Text}" Text="----" />
+                            <TextBlock x:Name="HostsText" Style="{StaticResource Text.Hint}" Margin="0,8,0,0" />
+                            <TextBlock Style="{StaticResource Text.Hint}" Margin="0,8,0,0"
+                                       Text="Open Slipstream Wheel and scan the code, or type it in. The code never leaves this PC and the phone." />
+                            <Button x:Name="NewCodeButton" Content="New code" Style="{StaticResource Button.Secondary}"
+                                    HorizontalAlignment="Left" Margin="0,16,0,0" Click="NewCode_Click"
+                                    ToolTip="Make a new pairing code. Phones paired with the old code stop working until they scan again." />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Section}">
+                        <StackPanel>
+                            <TextBlock Text="Game controller" Style="{StaticResource Text.Section}" />
+                            <Border Background="{StaticResource Brush.Bg}" CornerRadius="10" Padding="2">
+                                <UniformGrid Columns="3">
+                                    <RadioButton x:Name="VJoyRadio" GroupName="Output" Content="vJoy" Style="{StaticResource Segment}" Checked="Output_Checked" />
+                                    <RadioButton x:Name="X360Radio" GroupName="Output" Content="Xbox 360" Style="{StaticResource Segment}" Checked="Output_Checked" />
+                                    <RadioButton x:Name="NoneRadio" GroupName="Output" Content="None" Style="{StaticResource Segment}" Checked="Output_Checked" />
+                                </UniformGrid>
+                            </Border>
+                            <StackPanel Orientation="Horizontal" Margin="0,16,0,6">
+                                <Ellipse x:Name="OutputDot" Width="10" Height="10" Fill="{StaticResource Brush.TextFaint}" VerticalAlignment="Center" />
+                                <TextBlock x:Name="OutputStateText" Style="{StaticResource Text.Cell}" FontWeight="SemiBold" Margin="10,0,0,0" />
+                            </StackPanel>
+                            <TextBlock x:Name="OutputDetailText" Style="{StaticResource Text.Body}" />
+                            <Button x:Name="RetryButton" Content="Retry" Style="{StaticResource Button.Secondary}" HorizontalAlignment="Left"
+                                    Margin="0,14,0,0" Click="Retry_Click" ToolTip="Check the driver again" />
+                            <TextBlock Style="{StaticResource Text.Hint}" Margin="0,14,0,0"
+                                       Text="vJoy: device 1 with axes X Y Z Rx Ry and 32 buttons. Xbox 360 needs ViGEmBus. Both are free drivers." />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- Right column: link, controls, settings -->
+            <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False">
+                <StackPanel Margin="0,0,6,0">
+
+                    <!-- Link -->
+                    <Border Style="{StaticResource Section}">
+                        <StackPanel>
+                            <TextBlock Text="Link" Style="{StaticResource Text.Section}" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="1" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="1" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="1" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Update rate" Style="{StaticResource Text.Label}" />
+                                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                        <TextBlock x:Name="RateText" Text="0" Style="{StaticResource Text.Stat}" />
+                                        <TextBlock Text=" Hz" Style="{StaticResource Text.Label}" FontSize="14" VerticalAlignment="Bottom" Margin="0,0,0,5" />
+                                    </StackPanel>
+                                </StackPanel>
+                                <Border Grid.Column="1" Background="{StaticResource Brush.Stroke}" />
+                                <StackPanel Grid.Column="2" Margin="20,0,0,0">
+                                    <TextBlock Text="Round trip (phone)" Style="{StaticResource Text.Label}" />
+                                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                        <TextBlock x:Name="RttText" Text="-" Style="{StaticResource Text.Stat}" />
+                                        <TextBlock Text=" ms" Style="{StaticResource Text.Label}" FontSize="14" VerticalAlignment="Bottom" Margin="0,0,0,5" />
+                                    </StackPanel>
+                                </StackPanel>
+                                <Border Grid.Column="3" Background="{StaticResource Brush.Stroke}" />
+                                <StackPanel Grid.Column="4" Margin="20,0,0,0">
+                                    <TextBlock Text="Loss, last 0.5 s" Style="{StaticResource Text.Label}" />
+                                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                        <TextBlock x:Name="LossText" Text="0.0" Style="{StaticResource Text.Stat}" />
+                                        <TextBlock Text=" %" Style="{StaticResource Text.Label}" FontSize="14" VerticalAlignment="Bottom" Margin="0,0,0,5" />
+                                    </StackPanel>
+                                    <TextBlock x:Name="EpochLossText" Style="{StaticResource Text.Label}" />
+                                </StackPanel>
+                                <Border Grid.Column="5" Background="{StaticResource Brush.Stroke}" />
+                                <StackPanel Grid.Column="6" Margin="20,0,0,0">
+                                    <TextBlock Text="Rejected packets" Style="{StaticResource Text.Label}" />
+                                    <TextBlock x:Name="BadText" Text="0" Style="{StaticResource Text.Stat}" Margin="0,4,0,0" />
+                                    <TextBlock x:Name="BadDetailText" Style="{StaticResource Text.Label}" />
+                                </StackPanel>
+                            </Grid>
+
+                            <Border Style="{StaticResource Divider}" />
+
+                            <Grid x:Name="TransportGrid">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="1.4*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="1.6*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="28" />
+                                    <RowDefinition Height="36" />
+                                    <RowDefinition Height="36" />
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Column="0" Text="Path" Style="{StaticResource Text.Label}" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="1" Text="Packets/s" Style="{StaticResource Text.Label}" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="2" Text="Arrived first" Style="{StaticResource Text.Label}" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="3" Text="Duplicates" Style="{StaticResource Text.Label}" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="4" Text="Bad tags" Style="{StaticResource Text.Label}" VerticalAlignment="Center" />
+
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Wi-Fi (UDP)" Style="{StaticResource Text.Cell}" />
+                                <TextBlock Grid.Row="1" Grid.Column="1" x:Name="UdpRateText" Text="0" Style="{StaticResource Text.Cell}" />
+                                <StackPanel Grid.Row="1" Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <ui:LevelBar x:Name="UdpShareBar" Width="90" Height="8" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="UdpShareText" Text="0 %" Style="{StaticResource Text.Cell}" Margin="10,0,0,0" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="1" Grid.Column="3" x:Name="UdpDupText" Text="0" Style="{StaticResource Text.Cell}" />
+                                <TextBlock Grid.Row="1" Grid.Column="4" x:Name="UdpBadText" Text="0" Style="{StaticResource Text.Cell}" />
+
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="USB (adb)" Style="{StaticResource Text.Cell}" />
+                                <TextBlock Grid.Row="2" Grid.Column="1" x:Name="TcpRateText" Text="0" Style="{StaticResource Text.Cell}" />
+                                <StackPanel Grid.Row="2" Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <ui:LevelBar x:Name="TcpShareBar" Width="90" Height="8" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="TcpShareText" Text="0 %" Style="{StaticResource Text.Cell}" Margin="10,0,0,0" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="2" Grid.Column="3" x:Name="TcpDupText" Text="0" Style="{StaticResource Text.Cell}" />
+                                <TextBlock Grid.Row="2" Grid.Column="4" x:Name="TcpBadText" Text="0" Style="{StaticResource Text.Cell}" />
+                            </Grid>
+
+                            <Border Style="{StaticResource Divider}" />
+
+                            <TextBlock x:Name="LinkHintText" Style="{StaticResource Text.Body}" />
+                            <TextBlock x:Name="PortErrorText" Style="{StaticResource Text.Body}" Foreground="{StaticResource Brush.Error}" Margin="0,6,0,0" Visibility="Collapsed" />
+                            <TextBlock x:Name="UsbStatusText" Style="{StaticResource Text.Hint}" Margin="0,8,0,0" />
+                            <TextBlock x:Name="EndpointsText" Style="{StaticResource Text.Hint}" Margin="0,4,0,0" />
+                            <TextBlock x:Name="BeaconText" Style="{StaticResource Text.Hint}" Margin="0,4,0,0" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Live controls -->
+                    <Border Style="{StaticResource Section}">
+                        <StackPanel>
+                            <Grid>
+                                <TextBlock Text="Controls" Style="{StaticResource Text.Section}" />
+                                <TextBlock x:Name="FlagsText" Style="{StaticResource Text.Label}" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,2,0,0" />
+                            </Grid>
+                            <Grid Margin="0,0,0,6">
+                                <TextBlock Text="Steering" Style="{StaticResource Text.Label}" />
+                                <TextBlock x:Name="SteerText" Text="0.00" Style="{StaticResource Text.Cell}" FontFamily="{StaticResource Font.Mono}" HorizontalAlignment="Right" />
+                            </Grid>
+                            <ui:CenterBar x:Name="SteerBar" Height="14" Margin="0,4,0,18" />
+
+                            <Grid x:Name="PedalGrid">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="96" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="64" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="30" />
+                                    <RowDefinition Height="30" />
+                                    <RowDefinition Height="30" />
+                                    <RowDefinition Height="30" />
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Text="Throttle" Style="{StaticResource Text.Cell}" />
+                                <ui:LevelBar Grid.Row="0" Grid.Column="1" x:Name="ThrottleBar" Height="12" VerticalAlignment="Center" />
+                                <TextBlock Grid.Row="0" Grid.Column="2" x:Name="ThrottleText" Text="0 %" Style="{StaticResource Text.Cell}" HorizontalAlignment="Right" />
+                                <TextBlock Grid.Row="1" Text="Brake" Style="{StaticResource Text.Cell}" />
+                                <ui:LevelBar Grid.Row="1" Grid.Column="1" x:Name="BrakeBar" Height="12" VerticalAlignment="Center" />
+                                <TextBlock Grid.Row="1" Grid.Column="2" x:Name="BrakeText" Text="0 %" Style="{StaticResource Text.Cell}" HorizontalAlignment="Right" />
+                                <TextBlock Grid.Row="2" Text="Clutch" Style="{StaticResource Text.Cell}" />
+                                <ui:LevelBar Grid.Row="2" Grid.Column="1" x:Name="ClutchBar" Height="12" VerticalAlignment="Center" />
+                                <TextBlock Grid.Row="2" Grid.Column="2" x:Name="ClutchText" Text="0 %" Style="{StaticResource Text.Cell}" HorizontalAlignment="Right" />
+                                <TextBlock Grid.Row="3" Text="Handbrake" Style="{StaticResource Text.Cell}" />
+                                <ui:LevelBar Grid.Row="3" Grid.Column="1" x:Name="HandbrakeBar" Height="12" VerticalAlignment="Center" />
+                                <TextBlock Grid.Row="3" Grid.Column="2" x:Name="HandbrakeText" Text="0 %" Style="{StaticResource Text.Cell}" HorizontalAlignment="Right" />
+                            </Grid>
+
+                            <TextBlock Text="Shifts and actions" Style="{StaticResource Text.Label}" Margin="0,16,0,8" />
+                            <WrapPanel x:Name="PulseLamps" />
+                            <TextBlock Text="Held buttons" Style="{StaticResource Text.Label}" Margin="0,14,0,8" />
+                            <WrapPanel x:Name="ButtonLamps" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Settings -->
+                    <Border Style="{StaticResource Section}">
+                        <StackPanel>
+                            <TextBlock Text="Settings" Style="{StaticResource Text.Section}" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="2*" />
+                                    <ColumnDefinition Width="16" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="16" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="16" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Hub name (shown on the phone)" Style="{StaticResource Text.Label}" Margin="0,0,0,6" />
+                                    <TextBox x:Name="HubNameBox" Style="{StaticResource Input}" MaxLength="32" LostFocus="Settings_LostFocus" KeyDown="Settings_KeyDown" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="Failsafe (ms)" Style="{StaticResource Text.Label}" Margin="0,0,0,6" />
+                                    <TextBox x:Name="FailsafeBox" Style="{StaticResource Input}" LostFocus="Settings_LostFocus" KeyDown="Settings_KeyDown"
+                                             ToolTip="Pedals and buttons release when no packet arrives for this long. 50 to 2000." />
+                                </StackPanel>
+                                <StackPanel Grid.Column="4">
+                                    <TextBlock Text="Shift press (ms)" Style="{StaticResource Text.Label}" Margin="0,0,0,6" />
+                                    <TextBox x:Name="PulseBox" Style="{StaticResource Input}" LostFocus="Settings_LostFocus" KeyDown="Settings_KeyDown"
+                                             ToolTip="How long a gear shift button is held down. 10 to 500." />
+                                </StackPanel>
+                                <StackPanel Grid.Column="6">
+                                    <TextBlock Text="Shift gap (ms)" Style="{StaticResource Text.Label}" Margin="0,0,0,6" />
+                                    <TextBox x:Name="GapBox" Style="{StaticResource Input}" LostFocus="Settings_LostFocus" KeyDown="Settings_KeyDown"
+                                             ToolTip="Pause between two queued shifts on the same button. 10 to 500." />
+                                </StackPanel>
+                            </Grid>
+
+                            <TextBlock Text="Invert axes (in Xbox 360 mode only steering is inverted: triggers have a fixed direction)" Style="{StaticResource Text.Label}" Margin="0,18,0,4" />
+                            <WrapPanel>
+                                <CheckBox x:Name="InvertSteer" Content="Steering" Style="{StaticResource Check}" Checked="Invert_Changed" Unchecked="Invert_Changed" />
+                                <CheckBox x:Name="InvertThrottle" Content="Throttle" Style="{StaticResource Check}" Checked="Invert_Changed" Unchecked="Invert_Changed" />
+                                <CheckBox x:Name="InvertBrake" Content="Brake" Style="{StaticResource Check}" Checked="Invert_Changed" Unchecked="Invert_Changed" />
+                                <CheckBox x:Name="InvertClutch" Content="Clutch" Style="{StaticResource Check}" Checked="Invert_Changed" Unchecked="Invert_Changed" />
+                                <CheckBox x:Name="InvertHandbrake" Content="Handbrake" Style="{StaticResource Check}" Checked="Invert_Changed" Unchecked="Invert_Changed" />
+                            </WrapPanel>
+
+                            <Border Style="{StaticResource Divider}" />
+
+                            <CheckBox x:Name="UsbSwitch" Content="USB link: run adb reverse automatically when a phone is plugged in"
+                                      Style="{StaticResource Switch}" Checked="Usb_Changed" Unchecked="Usb_Changed" />
+                            <TextBlock Text="adb folder (optional: leave empty to search PATH and the Android SDK)" Style="{StaticResource Text.Label}" Margin="0,12,0,6" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="AdbFolderBox" Style="{StaticResource Input}" LostFocus="Settings_LostFocus" KeyDown="Settings_KeyDown" />
+                                <Button Grid.Column="1" Content="Browse" Style="{StaticResource Button.Secondary}" Margin="10,0,0,0" Click="BrowseAdb_Click" />
+                            </Grid>
+
+                            <Border Style="{StaticResource Divider}" />
+
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Button x:Name="FirewallButton" Content="Allow through firewall" Style="{StaticResource Button.Primary}" Click="Firewall_Click"
+                                        ToolTip="Adds an inbound rule for UDP 47800 on private and domain networks. Asks for administrator rights once." />
+                                <TextBlock x:Name="FirewallText" Grid.Column="1" Style="{StaticResource Text.Hint}" VerticalAlignment="Center" Margin="14,0,0,0"
+                                           Text="Needed once if the phone finds the hub but no packets arrive over Wi-Fi." />
+                            </Grid>
+
+                            <TextBlock x:Name="SettingsStatusText" Style="{StaticResource Text.Hint}" Margin="0,14,0,0" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+    </Grid>
+</Window>

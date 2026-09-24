@@ -132,7 +132,7 @@ def main():
         dict(epoch=0x1A2B3C4D, seq=1, t_us=123456789, steer=0, throttle=0, brake=0,
              clutch=0, handbrake=0, aux=0, buttons=0, pulses=[0] * 8, flags=0, rtt_100us=0),
         dict(epoch=0x1A2B3C4D, seq=2, t_us=123458789, steer=-32767, throttle=65535, brake=1234,
-             clutch=40000, handbrake=65535, aux=0, buttons=0x80000001,
+             clutch=40000, handbrake=65535, aux=0, buttons=0x00800001,
              pulses=[3, 255, 0, 1, 2, 4, 8, 16], flags=0b101, rtt_100us=42),
         dict(epoch=0xFFFFFFFF, seq=0xFFFFFFFF, t_us=0xFFFFFFFF, steer=32767, throttle=32768,
              brake=65535, clutch=1, handbrake=0, aux=0, buttons=0x00FF00FF,

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="gutter">20dp</dimen>
+    <dimen name="row_min_height">64dp</dimen>
+    <dimen name="drive_button_height">60dp</dimen>
+</resources>

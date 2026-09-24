@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PlatformTarget>x64</PlatformTarget>
+    <AssemblyName>SlipstreamHub</AssemblyName>
+    <RootNamespace>Slipstream.Hub</RootNamespace>
+    <AssemblyTitle>Slipstream Hub</AssemblyTitle>
+    <Description>Slipstream Hub: turns an Android phone running Slipstream Wheel into a virtual racing wheel.</Description>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\slipstream.ico</ApplicationIcon>
+    <!-- WFAC010 is a WinForms analyzer; this is a WPF app and WPF takes DPI awareness from app.manifest. -->
+    <NoWarn>$(NoWarn);WFAC010</NoWarn>
+    <EnableCompressionInSingleFile Condition="'$(SelfContained)' == 'true'">true</EnableCompressionInSingleFile>
+    <!-- WPF needs real cultures: it creates the "en-US" culture for text layout, which throws
+         CultureNotFoundException in globalization-invariant mode and would crash the window on start.
+         Windows 10 1903 and later ship ICU, so nothing extra is bundled. -->
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <!-- WinForms is only used for the tray NotifyIcon; keep its types out of the global usings
+         so they do not collide with WPF names (Application, MessageBox, Color, ...). -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\slipstream.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Nefarius.ViGEm.Client" Version="1.21.256" />
+    <PackageReference Include="QRCoder" Version="1.6.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Slipstream.Core\Slipstream.Core.csproj" />
+  </ItemGroup>
+
+</Project>
