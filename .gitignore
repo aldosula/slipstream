@@ -1,0 +1,16 @@
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+*.iml
+# .NET
+windows/**/bin/
+windows/**/obj/
+windows/artifacts/
+*.user
+# OS
+.DS_Store
+# build outputs
+dist/

@@ -1,0 +1,204 @@
+#!/usr/bin/env python3
+"""Reference implementation of the Slipstream Link Protocol v1 (SLP/1).
+
+This script is the single source of truth for byte layouts. It writes
+docs/test-vectors.json, which the Android (Kotlin) and Hub (C#) test suites
+both load and must reproduce byte for byte. If the protocol changes, change
+this file first, regenerate, then make both implementations pass again.
+
+Run:  python3 tools/gen_test_vectors.py
+"""
+import base64
+import hashlib
+import hmac
+import json
+import os
+import struct
+
+MAGIC0, MAGIC1, VERSION = 0x53, 0x4C, 1          # "SL", version 1
+T_INPUT, T_STATUS, T_BEACON = 1, 2, 3
+INPUT_LEN, STATUS_LEN, TAG_LEN = 52, 44, 8
+B32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+
+
+# ---------------------------------------------------------------- pairing ---
+def normalize_code(text):
+    """Uppercase, drop separators, map look-alike digits. None if invalid."""
+    out = []
+    for ch in text.upper():
+        if ch in "- \t":
+            continue
+        ch = {"0": "O", "1": "I", "8": "B"}.get(ch, ch)
+        if ch not in B32:
+            return None
+        out.append(ch)
+    s = "".join(out)
+    return s if len(s) == 16 else None
+
+
+def code_raw(code):
+    return base64.b32decode(code)                       # 16 chars -> 10 bytes
+
+
+def derive_key(code):
+    return hashlib.sha256(b"slipstream/v1/key" + code_raw(code)).digest()
+
+
+def fingerprint(key):
+    return hashlib.sha256(b"slipstream/v1/fp" + key).digest()[:8]
+
+
+def tag(key, body):
+    return hmac.new(key, body, hashlib.sha256).digest()[:TAG_LEN]
+
+
+def display_code(code):
+    return "-".join(code[i:i + 4] for i in range(0, 16, 4))
+
+
+# ---------------------------------------------------------------- packets ---
+def input_packet(key, f):
+    body = struct.pack(
+        "<BBBBIIIhHHHHHI8sBBH",
+        MAGIC0, MAGIC1, VERSION, T_INPUT,
+        f["epoch"], f["seq"], f["t_us"],
+        f["steer"], f["throttle"], f["brake"], f["clutch"], f["handbrake"], f["aux"],
+        f["buttons"], bytes(f["pulses"]),
+        f["flags"], 0, f["rtt_100us"],
+    )
+    assert len(body) == INPUT_LEN - TAG_LEN
+    return body + tag(key, body)
+
+
+def status_packet(key, f):
+    body = struct.pack(
+        "<BBBBIIIIIIHHBBH",
+        MAGIC0, MAGIC1, VERSION, T_STATUS,
+        f["epoch"], f["last_seq"], f["echo_t_us"], f["hold_us"],
+        f["accepted"], f["missing"],
+        f["rumble_strong"], f["rumble_weak"],
+        f["output"], f["hub_flags"], 0,
+    )
+    assert len(body) == STATUS_LEN - TAG_LEN
+    return body + tag(key, body)
+
+
+def beacon_packet(key, f):
+    name = f["name"].encode("utf-8")
+    assert len(name) <= 32
+    return struct.pack("<BBBBHH8sB", MAGIC0, MAGIC1, VERSION, T_BEACON,
+                       f["udp_port"], f["tcp_port"], fingerprint(key), len(name)) + name
+
+
+def frame(packet):
+    return struct.pack("<H", len(packet)) + packet
+
+
+# ---------------------------------------------------------------- helpers ---
+def seq_newer(a, b):
+    """True when seq a is newer than seq b (serial-number arithmetic, u32)."""
+    d = (a - b) & 0xFFFFFFFF
+    return d != 0 and d < 0x80000000
+
+
+def pulse_delta(new, old):
+    """Presses to emit for a u8 pulse counter. >=128 is a reset, emit 0."""
+    d = (new - old) & 0xFF
+    return d if 1 <= d <= 127 else 0
+
+
+def vjoy_steer(steer):
+    return 1 + ((steer + 32767) * 32767 + 32767) // 65534
+
+
+def vjoy_pedal(p):
+    return 1 + (p * 32767 + 32767) // 65535
+
+
+def x360_trigger(p):
+    return p >> 8
+
+
+def hid_steer(steer):
+    """Bluetooth HID report value for the steering axis, 0..65534 (center 32767)."""
+    return steer + 32767
+
+
+# ------------------------------------------------------------------ build ---
+def main():
+    code = "SLIPSTREAMTEST22"
+    key = derive_key(code)
+    inputs = [
+        dict(epoch=0x1A2B3C4D, seq=1, t_us=123456789, steer=0, throttle=0, brake=0,
+             clutch=0, handbrake=0, aux=0, buttons=0, pulses=[0] * 8, flags=0, rtt_100us=0),
+        dict(epoch=0x1A2B3C4D, seq=2, t_us=123458789, steer=-32767, throttle=65535, brake=1234,
+             clutch=40000, handbrake=65535, aux=0, buttons=0x80000001,
+             pulses=[3, 255, 0, 1, 2, 4, 8, 16], flags=0b101, rtt_100us=42),
+        dict(epoch=0xFFFFFFFF, seq=0xFFFFFFFF, t_us=0xFFFFFFFF, steer=32767, throttle=32768,
+             brake=65535, clutch=1, handbrake=0, aux=0, buttons=0x00FF00FF,
+             pulses=[127, 128, 200, 0, 0, 0, 0, 9], flags=0b010, rtt_100us=65535),
+    ]
+    statuses = [
+        dict(epoch=0x1A2B3C4D, last_seq=2, echo_t_us=123458789, hold_us=350, accepted=2, missing=0,
+             rumble_strong=0, rumble_weak=0, output=1, hub_flags=0),
+        dict(epoch=0xFFFFFFFF, last_seq=0xFFFFFFFF, echo_t_us=0xFFFFFFFF, hold_us=49999,
+             accepted=1000000, missing=17, rumble_strong=65535, rumble_weak=12345,
+             output=0x82, hub_flags=0),
+    ]
+    beacon = dict(udp_port=47800, tcp_port=47802, name="RACING-PC")
+
+    vectors = {
+        "protocol": "SLP/1",
+        "note": "Generated by tools/gen_test_vectors.py. Do not edit by hand.",
+        "pairing": {
+            "code": code,
+            "display": display_code(code),
+            "raw_hex": code_raw(code).hex(),
+            "key_hex": key.hex(),
+            "fingerprint_hex": fingerprint(key).hex(),
+            "normalize": [
+                {"in": "slip-stre-amte-st22", "out": "SLIPSTREAMTEST22"},
+                {"in": " SLIP STRE AMTE ST22 ", "out": "SLIPSTREAMTEST22"},
+                {"in": "abcd-efgh-ijkl-mn0p", "out": "ABCDEFGHIJKLMNOP"},
+                {"in": "1BCD-EFGH-IJKL-MNOP", "out": "IBCDEFGHIJKLMNOP"},
+                {"in": "8BCD-EFGH-IJKL-MNOP", "out": "BBCDEFGHIJKLMNOP"},
+                {"in": "ABCD-EFGH-IJKL-MNO", "out": None},
+                {"in": "ABCD-EFGH-IJKL-MNOPQ", "out": None},
+                {"in": "ABCD-EFGH-IJKL-MN9P", "out": None},
+                {"in": "ABCD_EFGH_IJKL_MNOP", "out": None},
+            ],
+        },
+        "input": [{"fields": f, "hex": input_packet(key, f).hex()} for f in inputs],
+        "status": [{"fields": f, "hex": status_packet(key, f).hex()} for f in statuses],
+        "beacon": {"fields": beacon, "hex": beacon_packet(key, beacon).hex()},
+        "frame": {"packet_hex": input_packet(key, inputs[0]).hex(),
+                  "hex": frame(input_packet(key, inputs[0])).hex()},
+        "tamper": {
+            "note": "input[1] with byte 16 (steer low byte) xor 0x01; tag must fail",
+            "hex": (lambda b: (b[:16] + bytes([b[16] ^ 1]) + b[17:]).hex())(input_packet(key, inputs[1])),
+        },
+        "seq_newer": [
+            {"a": a, "b": b, "newer": seq_newer(a, b)}
+            for a, b in [(2, 1), (1, 2), (5, 5), (0, 0xFFFFFFFF), (0xFFFFFFFF, 0),
+                         (0x80000000, 0), (0x7FFFFFFF, 0), (10, 0xFFFFFFF0)]
+        ],
+        "pulse_delta": [
+            {"new": n, "old": o, "presses": pulse_delta(n, o)}
+            for n, o in [(1, 0), (0, 255), (5, 5), (130, 0), (127, 0), (128, 0), (3, 250)]
+        ],
+        "map_vjoy_steer": [{"in": s, "out": vjoy_steer(s)} for s in [-32767, -16384, 0, 1, 16384, 32767]],
+        "map_vjoy_pedal": [{"in": p, "out": vjoy_pedal(p)} for p in [0, 1, 2, 32767, 32768, 65534, 65535]],
+        "map_x360_trigger": [{"in": p, "out": x360_trigger(p)} for p in [0, 255, 256, 32768, 65535]],
+        "map_hid_steer": [{"in": s, "out": hid_steer(s)} for s in [-32767, 0, 32767]],
+    }
+
+    here = os.path.dirname(os.path.abspath(__file__))
+    out = os.path.join(here, "..", "docs", "test-vectors.json")
+    with open(out, "w") as fh:
+        json.dump(vectors, fh, indent=2)
+        fh.write("\n")
+    print("wrote", os.path.normpath(out))
+
+
+if __name__ == "__main__":
+    main()
