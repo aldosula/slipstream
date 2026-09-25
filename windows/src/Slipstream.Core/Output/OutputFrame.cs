@@ -6,6 +6,20 @@ public enum OutputKind : byte
     None = 0,
     VJoy = 1,
     Xbox360 = 2,
+    /// <summary>
+    /// A virtual DualShock 4 (ViGEmBus), controller mode only. PROTOCOL.md section 6 lists values 0 to 2;
+    /// 3 is the next free value, used here for the DualShock 4.
+    /// </summary>
+    DualShock4 = 3,
+}
+
+/// <summary>Hub setting "Controller output": which virtual pad controller mode drives (PROTOCOL.md 12.4 rule 5).</summary>
+public enum PadOutputSelection
+{
+    /// <summary>By the phone's layout: STYLE_PS gives a DualShock 4, otherwise an Xbox 360 pad.</summary>
+    Auto = 0,
+    Xbox360 = 1,
+    DualShock4 = 2,
 }
 
 /// <summary>Health of an output device. Anything but Ready sets bit 7 of the STATUS output byte.</summary>

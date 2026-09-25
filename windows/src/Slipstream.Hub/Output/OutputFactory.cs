@@ -22,10 +22,27 @@ public static class OutputFactory
         }
     }
 
+    /// <summary>
+    /// Creates the controller-mode pad of a kind (the engine calls it on the first PAD packet). Never throws:
+    /// a missing ViGEmBus is a device in the Unavailable state with the fix in its detail text.
+    /// </summary>
+    public static IPadOutputDevice CreatePad(OutputKind kind)
+    {
+        try
+        {
+            return kind == OutputKind.DualShock4 ? new ViGEmDs4Output() : new ViGEmX360Output();
+        }
+        catch (Exception ex)
+        {
+            return new FailedPadOutput(kind, $"Could not start the virtual {Label(kind)} pad: {ex.Message}");
+        }
+    }
+
     public static string Label(OutputKind kind) => kind switch
     {
         OutputKind.VJoy => "vJoy",
         OutputKind.Xbox360 => "Xbox 360",
+        OutputKind.DualShock4 => "DualShock 4",
         _ => "None",
     };
 

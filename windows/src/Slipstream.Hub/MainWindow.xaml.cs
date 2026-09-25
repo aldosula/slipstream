@@ -11,6 +11,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Slipstream.Core.Link;
 using Slipstream.Core.Output;
+using Slipstream.Core.Protocol;
 using Slipstream.Core.Transport;
 using Slipstream.Hub.Ui;
 
@@ -25,6 +26,8 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _timer;
     private readonly Lamp[] _pulseLamps = new Lamp[8];
     private readonly Lamp[] _buttonLamps = new Lamp[24];
+    private readonly Lamp[] _padLamps = new Lamp[Wire.PadButtons];
+    private PadStyle _shownStyle = (PadStyle)255;
     private string _qrPayload = "";
     private long _nextHostCheckMs;
     private bool _loading;
@@ -47,6 +50,12 @@ public partial class MainWindow : Window
             _buttonLamps[i] = new Lamp { Label = (i + 1).ToString(Inv), Width = 34, Height = 28, Margin = new Thickness(0, 0, 6, 6), ToolTip = $"Held button {i + 1} (vJoy button {i + 9})" };
             ButtonLamps.Children.Add(_buttonLamps[i]);
         }
+        for (int i = 0; i < Wire.PadButtons; i++)
+        {
+            _padLamps[i] = new Lamp { Height = 28, Margin = new Thickness(0, 0, 6, 6) };
+            PadLamps.Children.Add(_padLamps[i]);
+        }
+        ShowPadStyle(PadStyle.PlayStation);
 
         LoadSettings();
         RefreshPairing(force: true);
@@ -104,17 +113,34 @@ public partial class MainWindow : Window
         HubSnapshot s = _host.Engine.GetSnapshot();
 
         // State pill and hints.
+        bool controller = s.Mode == LinkMode.Controller;
         (string label, Brush dot, string hint) = s.State switch
         {
             LinkState.Live => ("Live", Res("Brush.Ok"), s.Multipath ? "Live over Wi-Fi and USB together: the first copy of each packet wins." : "Live."),
-            LinkState.Paused => ("Paused on the phone", Res("Brush.Warn"), "The phone left its drive screen: steering centred, pedals and buttons released."),
-            LinkState.Failsafe => ("Signal lost", Res("Brush.Warn"), $"No packet for {s.SinceLastPacketMs:0} ms: pedals and buttons released, steering held."),
+            LinkState.Paused => ("Paused on the phone", Res("Brush.Warn"), controller
+                ? "The phone opened its pause menu: sticks centred, triggers and buttons released."
+                : "The phone left its drive screen: steering centred, pedals and buttons released."),
+            LinkState.Failsafe => ("Signal lost", Res("Brush.Warn"), controller
+                ? $"No packet for {s.SinceLastPacketMs:0} ms: sticks centred, triggers and buttons released."
+                : $"No packet for {s.SinceLastPacketMs:0} ms: pedals and buttons released, steering held."),
             LinkState.Lost => ("Phone disconnected", Res("Brush.Error"), "No packets for over 2 s. Check that Slipstream Wheel is open and on the same network, or plug in the USB cable."),
             _ => ("Waiting for the phone", Res("Brush.TextFaint"), "Open Slipstream Wheel and scan the code. If the phone sees the hub but nothing arrives, press Allow through firewall below."),
         };
         SetText(StateText, label);
         if (!ReferenceEquals(StateDot.Fill, dot)) StateDot.Fill = dot;
         SetText(LinkHintText, hint);
+
+        // Mode pill: what the phone is right now.
+        string? mode = s.Mode switch
+        {
+            LinkMode.Wheel => "Wheel",
+            LinkMode.Controller => s.Style == PadStyle.Xbox ? "Controller: Xbox" : "Controller: PlayStation",
+            _ => null,
+        };
+        SetVisible(ModePill, mode is not null);
+        SetText(ModeText, mode ?? "");
+        SetVisible(WheelPanel, !controller);
+        SetVisible(PadPanel, controller);
 
         // Headline numbers.
         SetText(RateText, s.RateHz.ToString("0", Inv));
@@ -151,6 +177,7 @@ public partial class MainWindow : Window
             : string.Format(Inv, "Discovery beacon: 1 Hz to {0} broadcast addresses.", beacon.Targets.Count));
 
         // Controls.
+        if (controller) RefreshPad(s);
         ControllerFrame f = s.Frame;
         SteerBar.Value = f.Steer / 32767.0;
         SetText(SteerText, (f.Steer / 32767.0).ToString("+0.00;-0.00;0.00", Inv));
@@ -168,6 +195,7 @@ public partial class MainWindow : Window
 
         // Output health can change on its own (driver removed, another feeder took vJoy).
         RefreshOutputState(s);
+        RefreshPadOutputState(s);
 
         long now = Environment.TickCount64;
         if (now >= _nextHostCheckMs)
@@ -185,6 +213,7 @@ public partial class MainWindow : Window
         _lastStatusLineMs = now;
         string state = s.State switch
         {
+            LinkState.Live when s.Mode == LinkMode.Controller => string.Format(Inv, "controller, live {0:0} Hz", s.RateHz),
             LinkState.Live => string.Format(Inv, "live {0:0} Hz", s.RateHz),
             LinkState.Paused => "paused",
             LinkState.Failsafe => "signal lost",
@@ -192,6 +221,70 @@ public partial class MainWindow : Window
             _ => "waiting for the phone",
         };
         StatusLine?.Invoke("Slipstream Hub: " + state);
+    }
+
+    // ------------------------------------------------------------ controller view ---
+
+    private void RefreshPad(HubSnapshot s)
+    {
+        PadStyle style = s.Style == PadStyle.None ? PadStyle.PlayStation : s.Style;
+        if (style != _shownStyle) ShowPadStyle(style);
+        PadFrame p = s.PadFrame;
+        LeftStick.X = p.Lx / 32767.0;
+        LeftStick.Y = p.Ly / 32767.0;
+        LeftStick.Pressed = p.IsDown(PadButton.L3);
+        RightStick.X = p.Rx / 32767.0;
+        RightStick.Y = p.Ry / 32767.0;
+        RightStick.Pressed = p.IsDown(PadButton.R3);
+        SetPedal(L2Bar, L2Text, p.L2);
+        SetPedal(R2Bar, R2Text, p.R2);
+        for (int b = 0; b < Wire.PadButtons; b++) _padLamps[b].IsOn = (p.Buttons & (1u << b)) != 0;
+
+        var flags = new List<string>(3);
+        if (s.HasEpoch) flags.Add("epoch " + s.Epoch.ToString("x8", Inv));
+        if (s.Multipath) flags.Add("multipath");
+        SetText(PadFlagsText, string.Join("  ", flags));
+
+        int fingers = (p.Touch0Active ? 1 : 0) + (p.Touch1Active ? 1 : 0);
+        long replayed = 0;
+        foreach (long n in s.TapsReplayed) replayed += n;
+        var hint = new List<string>(3);
+        if (style == PadStyle.PlayStation)
+        {
+            hint.Add(fingers == 0 ? "Touchpad: no finger." : fingers == 1 ? "Touchpad: 1 finger." : "Touchpad: 2 fingers.");
+            hint.Add(p.Motion ? "Motion: on." : "Motion: off.");
+        }
+        hint.Add(replayed == 0
+            ? "No press has needed replaying."
+            : string.Format(Inv, "{0} {1} replayed after lost packets.", replayed, replayed == 1 ? "press" : "presses"));
+        SetText(PadHintText, string.Join(" ", hint));
+    }
+
+    /// <summary>Labels the controller view for a layout: button names, trigger names, stick press names.</summary>
+    private void ShowPadStyle(PadStyle style)
+    {
+        _shownStyle = style;
+        bool ps = style != PadStyle.Xbox;
+        SetText(PadTitleText, ps ? "Controller, PlayStation layout" : "Controller, Xbox layout");
+        SetText(L2Label, ps ? "L2" : "LT");
+        SetText(R2Label, ps ? "R2" : "RT");
+        SetText(LeftStickText, ps ? "Left stick, L3" : "Left stick, LS");
+        SetText(RightStickText, ps ? "Right stick, R3" : "Right stick, RS");
+        for (int b = 0; b < Wire.PadButtons; b++)
+        {
+            string name = PadButtonNames.Name(b, style);
+            Lamp lamp = _padLamps[b];
+            lamp.Label = name;
+            lamp.Width = Math.Max(34, 16 + name.Length * 7);
+            lamp.ToolTip = $"{name} (canonical button {b})";
+            lamp.Visibility = name.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+    }
+
+    private static void SetVisible(UIElement element, bool visible)
+    {
+        Visibility v = visible ? Visibility.Visible : Visibility.Collapsed;
+        if (element.Visibility != v) element.Visibility = v;
     }
 
     private static void SetPedal(LevelBar bar, TextBlock text, ushort value)
@@ -254,13 +347,66 @@ public partial class MainWindow : Window
             VJoyRadio.IsChecked = kind == OutputKind.VJoy;
             X360Radio.IsChecked = kind == OutputKind.Xbox360;
             NoneRadio.IsChecked = kind == OutputKind.None;
+            PadOutputSelection pad = _host.Config.PadOutputSelection;
+            PadAutoRadio.IsChecked = pad == PadOutputSelection.Auto;
+            PadX360Radio.IsChecked = pad == PadOutputSelection.Xbox360;
+            PadDs4Radio.IsChecked = pad == PadOutputSelection.DualShock4;
         }
         finally
         {
             _loading = false;
         }
         _shownKind = (OutputKind)255;
-        RefreshOutputState(_host.Engine.GetSnapshot());
+        _shownPadKind = (OutputKind)255;
+        HubSnapshot snap = _host.Engine.GetSnapshot();
+        RefreshOutputState(snap);
+        RefreshPadOutputState(snap);
+    }
+
+    private OutputKind _shownPadKind = (OutputKind)255;
+    private OutputState _shownPadState = (OutputState)255;
+    private bool _shownPadPlugged;
+
+    private void RefreshPadOutputState(HubSnapshot s)
+    {
+        if (s.PadOutputKind == _shownPadKind && s.PadOutputState == _shownPadState && s.PadPlugged == _shownPadPlugged
+            && PadOutputDetailText.Text == s.PadOutputDetail) return;
+        _shownPadKind = s.PadOutputKind;
+        _shownPadState = s.PadOutputState;
+        _shownPadPlugged = s.PadPlugged;
+        (string text, string brush) = !s.PadPlugged
+            ? ($"{s.PadOutputName}: waiting for controller mode", "Brush.TextFaint")
+            : s.PadOutputState switch
+            {
+                OutputState.Ready => ($"{s.PadOutputName}: ready", "Brush.Ok"),
+                OutputState.Degraded => ($"{s.PadOutputName}: works, partly", "Brush.Warn"),
+                OutputState.Faulted => ($"{s.PadOutputName}: stopped", "Brush.Error"),
+                _ => ($"{s.PadOutputName}: not available", "Brush.Error"),
+            };
+        SetText(PadOutputStateText, text);
+        PadOutputDot.Fill = Res(brush);
+        SetText(PadOutputDetailText, s.PadOutputDetail);
+        PadRetryButton.Visibility = s.PadPlugged && s.PadOutputState != OutputState.Ready ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void PadOutput_Checked(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        PadOutputSelection selection = sender == PadX360Radio ? PadOutputSelection.Xbox360
+            : sender == PadDs4Radio ? PadOutputSelection.DualShock4
+            : PadOutputSelection.Auto;
+        Mouse.OverrideCursor = Cursors.Wait;
+        try { _host.SelectPadOutput(selection); }
+        finally { Mouse.OverrideCursor = null; }
+        _shownPadKind = (OutputKind)255;
+    }
+
+    private void PadRetry_Click(object sender, RoutedEventArgs e)
+    {
+        Mouse.OverrideCursor = Cursors.Wait;
+        try { _host.RetryPadOutput(); }
+        finally { Mouse.OverrideCursor = null; }
+        _shownPadKind = (OutputKind)255;
     }
 
     private void RefreshOutputState(HubSnapshot s)
@@ -312,6 +458,8 @@ public partial class MainWindow : Window
             FailsafeBox.Text = c.FailsafeMs.ToString(Inv);
             PulseBox.Text = c.PulseMs.ToString(Inv);
             GapBox.Text = c.GapMs.ToString(Inv);
+            TapBox.Text = c.TapMs.ToString(Inv);
+            TapGapBox.Text = c.TapGapMs.ToString(Inv);
             InvertSteer.IsChecked = c.Invert.Steer;
             InvertThrottle.IsChecked = c.Invert.Throttle;
             InvertBrake.IsChecked = c.Invert.Brake;
@@ -341,11 +489,14 @@ public partial class MainWindow : Window
         int failsafe = ParseMs(FailsafeBox.Text, 50, 2000, "Failsafe", errors, _host.Config.FailsafeMs);
         int pulse = ParseMs(PulseBox.Text, 10, 500, "Shift press", errors, _host.Config.PulseMs);
         int gap = ParseMs(GapBox.Text, 10, 500, "Shift gap", errors, _host.Config.GapMs);
+        int tap = ParseMs(TapBox.Text, 10, 500, "Tap press", errors, _host.Config.TapMs);
+        int tapGap = ParseMs(TapGapBox.Text, 10, 500, "Tap gap", errors, _host.Config.TapGapMs);
         string name = HubNameBox.Text.Trim();
         string? adb = string.IsNullOrWhiteSpace(AdbFolderBox.Text) ? null : AdbFolderBox.Text.Trim();
 
         var c = _host.Config;
         bool changed = failsafe != c.FailsafeMs || pulse != c.PulseMs || gap != c.GapMs
+                       || tap != c.TapMs || tapGap != c.TapGapMs
                        || (name.Length > 0 && name != c.HubName) || adb != c.AdbFolder;
         if (changed)
         {
@@ -354,6 +505,8 @@ public partial class MainWindow : Window
                 cfg.FailsafeMs = failsafe;
                 cfg.PulseMs = pulse;
                 cfg.GapMs = gap;
+                cfg.TapMs = tap;
+                cfg.TapGapMs = tapGap;
                 if (name.Length > 0) cfg.HubName = name;
                 cfg.AdbFolder = adb;
             });

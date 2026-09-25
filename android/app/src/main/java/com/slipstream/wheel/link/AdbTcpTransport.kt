@@ -46,9 +46,9 @@ class AdbTcpTransport(
     @Volatile var connects = 0
         private set
 
-    // Sender thread only.
+    // Sender thread only. Sized for the largest frame: INPUT (52) or PAD (76) plus the header.
     private val tx: ByteBuffer =
-        ByteBuffer.allocateDirect(Framing.HEADER_LEN + Slp.INPUT_LEN).order(ByteOrder.LITTLE_ENDIAN)
+        ByteBuffer.allocateDirect(Framing.HEADER_LEN + Slp.MAX_PACKET_LEN).order(ByteOrder.LITTLE_ENDIAN)
     private var pendingOn: SocketChannel? = null
     private var pendingSinceNs = 0L
 

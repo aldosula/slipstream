@@ -26,19 +26,22 @@ import androidx.core.view.WindowInsetsCompat
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import com.slipstream.wheel.LinkMode
+import com.slipstream.wheel.PlayAs
 import com.slipstream.wheel.R
 import com.slipstream.wheel.Settings
 import com.slipstream.wheel.hid.GamepadSupport
 import com.slipstream.wheel.link.BeaconListener
 import com.slipstream.wheel.link.DiscoveredHub
 import com.slipstream.wheel.link.HostPicker
+import com.slipstream.wheel.pad.PadStyle
+import com.slipstream.wheel.pad.layout.LayoutStore
 import com.slipstream.wheel.protocol.PairUri
 import com.slipstream.wheel.protocol.PairingKey
 
 /**
- * Start screen: pairing (QR or typed code), hubs discovered by beacon, connection mode,
- * and the Drive button. A hub whose beacon fingerprint matches the stored key is picked
- * automatically.
+ * Start screen: pairing (QR or typed code), hubs discovered by beacon, what the phone plays
+ * as (wheel, or controller with its profile), connection mode, and the Drive or Play button.
+ * A hub whose beacon fingerprint matches the stored key is picked automatically.
  */
 class ConnectActivity : ComponentActivity() {
     private lateinit var settings: Settings
@@ -50,7 +53,9 @@ class ConnectActivity : ComponentActivity() {
     private lateinit var pairDetail: TextView
     private lateinit var forgetButton: Button
     private lateinit var hubPanel: LinearLayout
+    private lateinit var playPanel: LinearLayout
     private lateinit var modePanel: LinearLayout
+    private lateinit var layouts: LayoutStore
     private lateinit var driveButton: Button
     private lateinit var driveHint: TextView
 
@@ -65,6 +70,7 @@ class ConnectActivity : ComponentActivity() {
         )
         super.onCreate(savedInstanceState)
         settings = Settings(this)
+        layouts = LayoutStore.open(this)
         beacons = BeaconListener(this) { list ->
             hubs = list
             rememberPairedHub()
@@ -159,6 +165,11 @@ class ConnectActivity : ComponentActivity() {
         hubPanel = Ui.panel(this)
         column.addView(hubPanel)
 
+        // Play as: wheel or controller
+        column.addView(Ui.sectionLabel(this, getString(R.string.section_play_as)))
+        playPanel = Ui.panel(this)
+        column.addView(playPanel)
+
         // Connection mode
         column.addView(Ui.sectionLabel(this, getString(R.string.section_connection)))
         modePanel = Ui.panel(this)
@@ -196,6 +207,7 @@ class ConnectActivity : ComponentActivity() {
     private fun renderAll() {
         renderPairing()
         renderHubs()
+        renderPlayAs()
         renderModes()
         renderDrive()
     }
@@ -246,6 +258,39 @@ class ConnectActivity : ComponentActivity() {
         }
     }
 
+    private fun renderPlayAs() {
+        playPanel.removeAllViews()
+        val current = settings.playAs
+        val entries = listOf(
+            Triple(PlayAs.WHEEL, R.string.play_wheel, R.string.play_wheel_hint),
+            Triple(PlayAs.CONTROLLER, R.string.play_controller, R.string.play_controller_hint),
+        )
+        entries.forEachIndexed { i, (choice, title, hint) ->
+            if (i > 0) playPanel.addView(Ui.divider(this))
+            val row = Ui.row(this, getString(title), getString(hint), start = Ui.radio(this, choice == current))
+            row.setOnClickListener {
+                settings.playAs = choice
+                renderPlayAs()
+                renderDrive()
+            }
+            playPanel.addView(row)
+        }
+        if (current == PlayAs.CONTROLLER) {
+            // The profile picker belongs to the controller choice.
+            val profile = layouts.current()
+            val style = getString(if (profile.style == PadStyle.PLAYSTATION) R.string.style_ps else R.string.style_xbox)
+            playPanel.addView(Ui.divider(this))
+            val row = Ui.row(
+                this,
+                getString(R.string.profile_row, profile.name),
+                style + ". " + getString(R.string.profile_row_hint),
+                end = Ui.badge(this, getString(R.string.change), accent = false),
+            )
+            row.setOnClickListener { startActivity(Intent(this, ProfilesActivity::class.java)) }
+            playPanel.addView(row)
+        }
+    }
+
     private fun renderModes() {
         modePanel.removeAllViews()
         val current = settings.mode
@@ -276,7 +321,10 @@ class ConnectActivity : ComponentActivity() {
         val mode = settings.mode
         val key = settings.pairingKey()
         val host = targetHost()
+        val controller = settings.playAs == PlayAs.CONTROLLER
+        driveButton.text = getString(if (controller) R.string.play else R.string.drive)
         val (enabled, hint) = when {
+            controller && mode == LinkMode.BLUETOOTH -> false to getString(R.string.play_hint_bt)
             mode == LinkMode.BLUETOOTH && !GamepadSupport.isApiSupported -> false to getString(R.string.bt_unsupported)
             mode == LinkMode.BLUETOOTH -> true to getString(R.string.drive_hint_bt)
             key == null -> false to getString(R.string.drive_hint_need_code)
@@ -311,7 +359,9 @@ class ConnectActivity : ComponentActivity() {
     }
 
     private fun startDrive() {
-        val intent = Intent(this, DriveActivity::class.java)
+        val controller = settings.playAs == PlayAs.CONTROLLER
+        if (controller && settings.mode == LinkMode.BLUETOOTH) return
+        val intent = Intent(this, if (controller) PadActivity::class.java else DriveActivity::class.java)
         if (settings.mode != LinkMode.BLUETOOTH) {
             intent.putExtra(DriveActivity.EXTRA_HOST, targetHost())
             intent.putExtra(DriveActivity.EXTRA_UDP_PORT, settings.udpPort)

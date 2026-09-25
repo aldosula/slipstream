@@ -161,7 +161,8 @@ com.slipstream.wheel
 Play screen rules:
 
 - Only playable controls are drawn. No edit button and no status chip while things are fine.
-- A **pause ring** sits at the top centre (16 dp drawn, 44 dp hit area, faint). Holding it for
+- A **pause ring** sits at the top centre (16 dp drawn, 44 dp hit area, faint; where the hit area
+  overlaps another control, such as the PlayStation touchpad, the control wins outside a 24 dp core). Holding it for
   1.5 s fills the ring and opens the pause menu: Resume, Edit layout, Switch profile, Exit. A
   shorter touch does nothing. Opening the menu sets `PAUSED` until Resume.
 - The status chip appears only when the link degrades (smoothed RTT above 30 ms, loss above 5 %
@@ -178,7 +179,8 @@ Play screen rules:
   touch), per trigger.
 - **Touchpad (PlayStation):** up to two fingers reported as touch0 / touch1; a tap shorter than
   200 ms that moves less than 4 % of the pad counts as a touchpad click (held for the tap).
-- **Motion:** raw gyro and accel are always sent with `MOTION` in PlayStation style. **Gyro aim**
+- **Motion:** raw gyro and accel are sent with `MOTION` in PlayStation style while playing; the
+  sensors stop while paused. **Gyro aim**
   (off by default) adds gyro yaw and pitch to the right stick: off, always, or only while a finger
   is on the right stick; sensitivity and invert Y.
 - **Volume keys:** unmapped by default (they change the volume); mappable to any canonical button.

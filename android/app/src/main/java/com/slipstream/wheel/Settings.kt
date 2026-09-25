@@ -14,6 +14,9 @@ enum class PedalMode { SWIPE, ABSOLUTE }
 /** Fixed landscape for the drive screen. The wheel must not flip mid-corner. */
 enum class DriveOrientation { LANDSCAPE, REVERSE_LANDSCAPE }
 
+/** What the phone becomes: the racing wheel, or a gamepad (controller mode, 0.2.0). */
+enum class PlayAs { WHEEL, CONTROLLER }
+
 /**
  * SharedPreferences-backed settings. Reads are cheap and happen when a screen opens, never
  * on the input path. The pairing code is stored only on this phone and excluded from
@@ -70,6 +73,19 @@ class Settings(context: Context) {
     var rumble: Boolean
         get() = prefs.getBoolean(K_RUMBLE, true)
         set(v) = put { putBoolean(K_RUMBLE, v) }
+
+    // Controller mode
+    var playAs: PlayAs
+        get() = enumOr(prefs.getString(K_PLAY_AS, null), PlayAs.WHEEL)
+        set(v) = put { putString(K_PLAY_AS, v.name) }
+
+    /** Canonical pad button the volume up key holds in controller mode, or [UNMAPPED]. */
+    var padVolumeUp: Int
+        get() = prefs.getInt(K_PAD_VOL_UP, UNMAPPED).let { if (it in 0 until Slp.PAD_BUTTONS) it else UNMAPPED }
+        set(v) = put { putInt(K_PAD_VOL_UP, v) }
+    var padVolumeDown: Int
+        get() = prefs.getInt(K_PAD_VOL_DOWN, UNMAPPED).let { if (it in 0 until Slp.PAD_BUTTONS) it else UNMAPPED }
+        set(v) = put { putInt(K_PAD_VOL_DOWN, v) }
 
     fun buttonLabel(i: Int): String =
         prefs.getString(K_LABEL + i, null)?.takeIf { it.isNotBlank() } ?: DEFAULT_LABELS[i]
@@ -137,6 +153,9 @@ class Settings(context: Context) {
         const val TRAVEL_MIN = 10
         const val TRAVEL_MAX = 80
         const val LABEL_MAX = 6
+
+        /** A volume key that keeps changing the volume in controller mode. */
+        const val UNMAPPED = -1
         val DEFAULT_LABELS = listOf("1", "2", "3", "4")
 
         private const val K_LOCK = "steer.lock_deg"
@@ -154,6 +173,9 @@ class Settings(context: Context) {
         private const val K_HAPTICS = "feedback.haptics"
         private const val K_RUMBLE = "feedback.rumble"
         private const val K_LABEL = "buttons.label."
+        private const val K_PLAY_AS = "play.as"
+        private const val K_PAD_VOL_UP = "pad.volume_up"
+        private const val K_PAD_VOL_DOWN = "pad.volume_down"
         private const val K_RATE = "link.rate_hz"
         private const val K_MODE = "link.mode"
         private const val K_CODE = "pair.code"

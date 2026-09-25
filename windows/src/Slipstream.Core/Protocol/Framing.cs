@@ -44,6 +44,39 @@ public static class Framing
         return stream.ReadAtLeast(buffer[..length], length, throwOnEndOfStream: false) == length ? ReadResult.Ok : ReadResult.Closed;
     }
 
+    /// <summary>True for a frame length the hub accepts: one INPUT (52) or one PAD (76) packet.</summary>
+    public static bool IsHubFrameLength(int length) => length is Wire.InputLength or Wire.PadLength;
+
+    /// <summary>
+    /// Hub side of section 8: reads one frame of 52 (INPUT) or 76 (PAD) bytes into <paramref name="buffer"/>
+    /// (at least 76 bytes). Blocks. Any other length is <see cref="ReadResult.BadLength"/>: the caller
+    /// must close the connection.
+    /// </summary>
+    public static ReadResult ReadHubFrame(Socket socket, Span<byte> buffer, out int length)
+    {
+        length = 0;
+        Span<byte> header = stackalloc byte[Wire.FrameHeaderLength];
+        if (!ReadExactly(socket, header)) return ReadResult.Closed;
+        int n = BinaryPrimitives.ReadUInt16LittleEndian(header);
+        if (!IsHubFrameLength(n)) return ReadResult.BadLength;
+        if (!ReadExactly(socket, buffer[..n])) return ReadResult.Closed;
+        length = n;
+        return ReadResult.Ok;
+    }
+
+    /// <summary>Same as <see cref="ReadHubFrame(Socket, Span{byte}, out int)"/> for an in-memory stream (tests, tools).</summary>
+    public static ReadResult ReadHubFrame(Stream stream, Span<byte> buffer, out int length)
+    {
+        length = 0;
+        Span<byte> header = stackalloc byte[Wire.FrameHeaderLength];
+        if (stream.ReadAtLeast(header, header.Length, throwOnEndOfStream: false) < header.Length) return ReadResult.Closed;
+        int n = BinaryPrimitives.ReadUInt16LittleEndian(header);
+        if (!IsHubFrameLength(n)) return ReadResult.BadLength;
+        if (stream.ReadAtLeast(buffer[..n], n, throwOnEndOfStream: false) != n) return ReadResult.Closed;
+        length = n;
+        return ReadResult.Ok;
+    }
+
     private static bool ReadExactly(Socket socket, Span<byte> dest)
     {
         int got = 0;

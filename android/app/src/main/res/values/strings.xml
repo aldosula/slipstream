@@ -63,4 +63,90 @@
     <string name="bt_open_settings">Open settings</string>
     <string name="bt_turn_on">Turn on Bluetooth</string>
 
+    <!-- Play as (controller mode, 0.2.0) -->
+    <string name="section_play_as">Play as</string>
+    <string name="play_wheel">Wheel</string>
+    <string name="play_wheel_hint">Tilt the phone to steer, pedals and paddles on the screen.</string>
+    <string name="play_controller">Controller</string>
+    <string name="play_controller_hint">A PlayStation or Xbox style gamepad for PC games.</string>
+    <string name="profile_row">Profile: %1$s</string>
+    <string name="profile_row_hint">Pick, edit or copy layouts.</string>
+    <string name="change">Change</string>
+    <string name="play">Play</string>
+    <string name="play_hint_bt">Controller mode runs through Slipstream Hub. Pick Wi-Fi, USB or both.</string>
+
+    <!-- Pause menu -->
+    <string name="paused">Paused</string>
+    <string name="resume">Resume</string>
+    <string name="edit_layout">Edit layout</string>
+    <string name="switch_profile">Switch profile</string>
+    <string name="exit">Exit</string>
+    <string name="back">Back</string>
+    <string name="pause_hint">The hub holds every control at rest until you resume.</string>
+
+    <!-- Status chip -->
+    <string name="chip_connecting">Connecting to the hub</string>
+    <string name="chip_no_reply">No reply from the hub. Controller mode needs Slipstream Hub 0.2.0.</string>
+    <string name="chip_busy">The hub is busy with another phone</string>
+    <string name="chip_output_error">Hub output error: is ViGEmBus installed?</string>
+
+    <!-- Profiles -->
+    <string name="profiles">Controller profiles</string>
+    <string name="profiles_built_in">Built in</string>
+    <string name="profiles_custom">Your profiles</string>
+    <string name="profiles_empty">Duplicate a built-in profile to make your own.</string>
+    <string name="style_ps">PlayStation style</string>
+    <string name="style_xbox">Xbox style</string>
+    <string name="in_use">In use</string>
+    <string name="use_profile">Use</string>
+    <string name="duplicate">Duplicate</string>
+    <string name="rename">Rename</string>
+    <string name="delete">Delete</string>
+    <string name="reset">Reset</string>
+    <string name="more">More</string>
+    <string name="rename_title">Profile name</string>
+    <string name="delete_confirm">Delete %1$s? This cannot be undone.</string>
+    <string name="reset_confirm">Put %1$s back to its default layout?</string>
+
+    <!-- Editor -->
+    <string name="editor_grid">Grid</string>
+    <string name="editor_mirror">Mirror</string>
+    <string name="editor_reset">Reset</string>
+    <string name="editor_layout">Options</string>
+    <string name="editor_save">Save</string>
+    <string name="editor_close">Close</string>
+    <string name="editor_move_bar">Move bar</string>
+    <string name="editor_saved">Layout saved</string>
+    <string name="editor_hint">Drag to move. Pinch or drag a corner to resize.</string>
+    <string name="editor_unsaved">Save the changes to %1$s?</string>
+    <string name="editor_discard">Discard</string>
+    <string name="editor_done">Done</string>
+    <string name="editor_reset_confirm">Replace this layout with the default? Save keeps it.</string>
+    <string name="opt_opacity">Opacity</string>
+    <string name="opt_haptic">Haptic tick</string>
+    <string name="opt_shape">Shape</string>
+    <string name="opt_trigger_mode">Trigger</string>
+    <string name="opt_trigger_mode_hint">Slide along the bar for a partial press, or full on touch.</string>
+    <string name="opt_origin">Stick centre</string>
+    <string name="opt_origin_hint">Fixed: the control\'s centre. Floating: wherever your thumb lands.</string>
+    <string name="opt_click">Stick press</string>
+    <string name="opt_click_hint">L3 or R3, held while the thumb stays down.</string>
+    <string name="opt_deadzone">Deadzone</string>
+    <string name="opt_curve">Response curve</string>
+    <string name="opt_layout_title">Layout options</string>
+    <string name="opt_slide">Slide to press</string>
+    <string name="opt_slide_hint">Slide a finger between face buttons or D-pad directions without lifting.</string>
+    <string name="opt_gyro">Gyro aim</string>
+    <string name="opt_gyro_hint">Turn and tilt the phone to move the right stick.</string>
+    <string name="opt_gyro_sens">Gyro sensitivity</string>
+    <string name="opt_gyro_invert">Invert gyro Y</string>
+    <string name="opt_gyro_invert_hint">Tilt the top toward you to aim down instead of up.</string>
+
+    <!-- Settings, controller section -->
+    <string name="settings_controller">Controller</string>
+    <string name="volume_up_key">Volume up key</string>
+    <string name="volume_down_key">Volume down key</string>
+    <string name="volume_key_hint">In controller mode. Not mapped keeps changing the volume.</string>
+    <string name="not_mapped">Not mapped</string>
+    <string name="settings_profiles_hint">Built-in PlayStation and Xbox layouts, and your own.</string>
 </resources>

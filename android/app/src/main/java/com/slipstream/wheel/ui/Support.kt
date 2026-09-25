@@ -68,7 +68,8 @@ class RadioDrawable(
 }
 
 /**
- * Phone vibration: the short tick on each gear shift, and rumble driven by the game through
+ * Phone vibration: the short tick on each gear shift (and on each press in controller mode,
+ * at the control's strength), and rumble driven by the game through
  * STATUS. Rumble is re-issued as a 120 ms one-shot on every STATUS (20 Hz), so it stops by
  * itself when the hub goes quiet. Vibrator calls are binder calls, so they run on their
  * own thread: never on a receive thread, and never on the main thread, which delivers the
@@ -93,6 +94,22 @@ class Haptics(context: Context) {
     private val thread = HandlerThread("slip-haptics").also { it.start() }
     private val handler = Handler(thread.looper)
 
+    /** Per control tick strengths for controller mode, built once so a press allocates nothing. */
+    private val levelEffects: Array<VibrationEffect?> = Array(LEVELS) { i ->
+        when {
+            vibrator == null -> null
+            amplitudeControl -> VibrationEffect.createOneShot(LEVEL_MS, (255 * (i + 1) / LEVELS).coerceIn(1, 255))
+            else -> tickEffect
+        }
+    }
+    private val levelTasks: Array<Runnable> = Array(LEVELS) { i ->
+        Runnable {
+            val v = vibrator
+            val e = levelEffects[i]
+            if (v != null && e != null) v.vibrate(e)
+        }
+    }
+
     @Volatile private var rumbleLevel = 0
     private var lastAmp = 0
     private var lastIssueMs = 0L
@@ -107,6 +124,16 @@ class Haptics(context: Context) {
     fun tick() {
         if (vibrator == null || tickEffect == null) return
         handler.post(tickTask)
+    }
+
+    /**
+     * A tick of [strength] 0..1 (0 is off), for a press in controller mode. Returns at once:
+     * the vibrator is driven from the haptics thread.
+     */
+    fun tick(strength: Float) {
+        if (vibrator == null || strength <= 0f) return
+        val level = (strength * LEVELS + 0.5f).toInt().coerceIn(1, LEVELS) - 1
+        handler.post(levelTasks[level])
     }
 
     /** STATUS sink for rumble; runs on receive threads and only hands the level over. */
@@ -150,6 +177,8 @@ class Haptics(context: Context) {
     }
 
     private companion object {
+        const val LEVELS = 4
+        const val LEVEL_MS = 14L
         const val RUMBLE_THRESHOLD = 1500
         const val ONE_SHOT_MS = 120L
         const val REISSUE_MS = 40L

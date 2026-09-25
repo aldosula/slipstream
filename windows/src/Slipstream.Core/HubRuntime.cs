@@ -24,6 +24,12 @@ public sealed record HubRuntimeOptions
     /// returns is disposed on the same thread when that thread ends.
     /// </summary>
     public Func<IDisposable?>? HotThreadInit { get; init; }
+    /// <summary>
+    /// Creates the controller-mode pad device of a kind (DualShock 4 or Xbox 360) the first time a PAD packet
+    /// needs it. Must not throw. Null: controller mode runs without a pad device, unless the wheel output can
+    /// serve as one.
+    /// </summary>
+    public Func<OutputKind, IPadOutputDevice>? PadOutputFactory { get; init; }
 }
 
 /// <summary>
@@ -44,7 +50,7 @@ public sealed class HubRuntime : IDisposable
         Config = config ?? throw new ArgumentNullException(nameof(config));
         _options = options ?? new HubRuntimeOptions();
         Config.Normalize();
-        Engine = new HubEngine(PairingKey.FromCode(Config.PairingCode!), output, Config.ToEngineOptions(), _options.Clock);
+        Engine = new HubEngine(PairingKey.FromCode(Config.PairingCode!), output, Config.ToEngineOptions(), _options.Clock, _options.PadOutputFactory);
     }
 
     public HubConfig Config { get; }
@@ -144,7 +150,7 @@ public sealed class HubRuntime : IDisposable
         toDispose?.Dispose();
     }
 
-    /// <summary>Pushes timing and inversion from <see cref="Config"/> into the engine.</summary>
+    /// <summary>Pushes timing, inversion and the controller output setting from <see cref="Config"/> into the engine.</summary>
     public void ApplySettings()
     {
         Config.Normalize();

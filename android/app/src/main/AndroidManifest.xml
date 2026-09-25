@@ -60,6 +60,24 @@
             android:name=".ui.SettingsActivity"
             android:exported="false" />
 
+        <!-- Controller mode (0.2.0): play screen, layout editor, profiles. -->
+        <activity
+            android:name=".ui.PadActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.Slipstream.Drive" />
+
+        <activity
+            android:name=".ui.PadEditorActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density"
+            android:exported="false"
+            android:theme="@style/Theme.Slipstream.Drive" />
+
+        <activity
+            android:name=".ui.ProfilesActivity"
+            android:exported="false" />
+
         <!-- The scanner follows the phone instead of forcing landscape (fullSensor locks nothing). -->
         <activity
             android:name="com.journeyapps.barcodescanner.CaptureActivity"

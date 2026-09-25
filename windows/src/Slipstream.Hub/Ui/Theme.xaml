@@ -100,12 +100,12 @@
         <Setter Property="Margin" Value="0,14,0,14" />
     </Style>
 
-    <!-- Buttons: 40 px minimum height, flat, no motion. -->
+    <!-- Buttons: 44 px minimum height (touch target), flat, no motion. -->
     <Style x:Key="Button.Base" TargetType="Button">
         <Setter Property="FontFamily" Value="{StaticResource Font.Ui}" />
         <Setter Property="FontSize" Value="13" />
         <Setter Property="FontWeight" Value="SemiBold" />
-        <Setter Property="MinHeight" Value="40" />
+        <Setter Property="MinHeight" Value="44" />
         <Setter Property="MinWidth" Value="96" />
         <Setter Property="Padding" Value="16,8" />
         <Setter Property="Cursor" Value="Hand" />
@@ -165,7 +165,7 @@
         <Setter Property="FontFamily" Value="{StaticResource Font.Ui}" />
         <Setter Property="FontSize" Value="13" />
         <Setter Property="FontWeight" Value="SemiBold" />
-        <Setter Property="MinHeight" Value="40" />
+        <Setter Property="MinHeight" Value="44" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="FocusVisualStyle" Value="{x:Null}" />
         <Setter Property="Foreground" Value="{StaticResource Brush.Text}" />
@@ -196,12 +196,12 @@
         </Style.Triggers>
     </Style>
 
-    <!-- Check box with a 20 px box, whole row clickable. -->
+    <!-- Check box with a 20 px box, whole 44 px row clickable. -->
     <Style x:Key="Check" TargetType="CheckBox">
         <Setter Property="FontFamily" Value="{StaticResource Font.Ui}" />
         <Setter Property="FontSize" Value="13" />
         <Setter Property="Foreground" Value="{StaticResource Brush.Text}" />
-        <Setter Property="MinHeight" Value="36" />
+        <Setter Property="MinHeight" Value="44" />
         <Setter Property="Margin" Value="0,0,20,0" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="FocusVisualStyle" Value="{x:Null}" />
@@ -240,7 +240,7 @@
         <Setter Property="FontFamily" Value="{StaticResource Font.Ui}" />
         <Setter Property="FontSize" Value="13" />
         <Setter Property="Foreground" Value="{StaticResource Brush.Text}" />
-        <Setter Property="MinHeight" Value="36" />
+        <Setter Property="MinHeight" Value="44" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="FocusVisualStyle" Value="{x:Null}" />
         <Setter Property="Template">
@@ -284,7 +284,7 @@
         <Setter Property="Background" Value="{StaticResource Brush.Raised}" />
         <Setter Property="BorderBrush" Value="{StaticResource Brush.StrokeStrong}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="MinHeight" Value="40" />
+        <Setter Property="MinHeight" Value="44" />
         <Setter Property="Padding" Value="10,0" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="FocusVisualStyle" Value="{x:Null}" />

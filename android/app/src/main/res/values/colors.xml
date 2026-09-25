@@ -14,4 +14,18 @@
     <color name="accent_soft">#29FF6B2C</color>
     <color name="on_accent">#FF1B0C04</color>
     <color name="ripple">#1FE7EDF4</color>
+    <!-- Behind the pause menu: the background token, mostly opaque. -->
+    <color name="scrim">#E00B0F14</color>
+    <!-- Editor warning outline for overlapping controls. -->
+    <color name="warn">#FFE9C04E</color>
+
+    <!-- Face glyph colours (ARCHITECTURE.md 7.2), drawn on neutral buttons. -->
+    <color name="face_ps_triangle">#FF3CC6B2</color>
+    <color name="face_ps_circle">#FFFF5F66</color>
+    <color name="face_ps_cross">#FF6394FF</color>
+    <color name="face_ps_square">#FFF28CC6</color>
+    <color name="face_xbox_a">#FF52C873</color>
+    <color name="face_xbox_b">#FFFF5F66</color>
+    <color name="face_xbox_x">#FF4D93F2</color>
+    <color name="face_xbox_y">#FFF3B943</color>
 </resources>

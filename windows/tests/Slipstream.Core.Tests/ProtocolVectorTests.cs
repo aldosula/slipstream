@@ -291,6 +291,9 @@ public class ProtocolVectorTests
         {
             "protocol", "note", "pairing", "input", "status", "beacon", "frame", "tamper",
             "seq_newer", "pulse_delta", "map_vjoy_steer", "map_vjoy_pedal", "map_x360_trigger", "map_hid_steer",
+            // Controller mode, read by PadVectorTests.
+            "pad", "pad_frame", "pad_tamper", "tap_delta", "tap_schedule",
+            "map_ds4_axis", "map_ds4_axis_y", "map_ds4_trigger_digital",
         };
         foreach (JsonProperty p in Vectors.Root.EnumerateObject())
             Assert.True(covered.Contains(p.Name), $"test-vectors.json has a section '{p.Name}' that no test reads.");

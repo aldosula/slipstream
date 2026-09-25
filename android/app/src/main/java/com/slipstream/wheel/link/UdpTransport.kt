@@ -63,7 +63,8 @@ class UdpTransport(
     @Volatile var opens = 0
         private set
 
-    private val tx: ByteBuffer = ByteBuffer.allocateDirect(Slp.INPUT_LEN)
+    /** Sized for the largest packet: INPUT (52) in wheel mode, PAD (76) in controller mode. */
+    private val tx: ByteBuffer = ByteBuffer.allocateDirect(Slp.MAX_PACKET_LEN)
     private val rxArray = ByteArray(256)
     private val rx: ByteBuffer = ByteBuffer.wrap(rxArray)
     private val decoder = StatusDecoder(key)

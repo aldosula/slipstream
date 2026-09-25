@@ -47,6 +47,9 @@ public sealed class HubConfig
     public const string OutputVJoy = "vjoy";
     public const string OutputX360 = "x360";
     public const string OutputNone = "none";
+    public const string PadOutputAuto = "auto";
+    public const string PadOutputX360 = "x360";
+    public const string PadOutputDs4 = "ds4";
 
     public string? PairingCode { get; set; }
     public string? HubName { get; set; }
@@ -56,6 +59,12 @@ public sealed class HubConfig
     public int PulseMs { get; set; } = 60;
     public int GapMs { get; set; } = 40;
     public InvertConfig Invert { get; set; } = new();
+    /// <summary>Controller mode output: "auto" (by the phone's layout), "x360" or "ds4".</summary>
+    public string PadOutput { get; set; } = PadOutputAuto;
+    /// <summary>Controller mode: how long a replayed tap is held down, ms (PROTOCOL.md 12.4 rule 3 tap_ms).</summary>
+    public int TapMs { get; set; } = 50;
+    /// <summary>Controller mode: release between replayed taps, ms (gap_ms).</summary>
+    public int TapGapMs { get; set; } = 40;
     public bool UsbEnabled { get; set; } = true;
     public string? AdbFolder { get; set; }
     public bool BeaconEnabled { get; set; } = true;
@@ -66,6 +75,13 @@ public sealed class HubConfig
     {
         get => Output switch { OutputX360 => OutputKind.Xbox360, OutputNone => OutputKind.None, _ => OutputKind.VJoy };
         set => Output = value switch { OutputKind.Xbox360 => OutputX360, OutputKind.None => OutputNone, _ => OutputVJoy };
+    }
+
+    [JsonIgnore]
+    public PadOutputSelection PadOutputSelection
+    {
+        get => PadOutput switch { PadOutputX360 => PadOutputSelection.Xbox360, PadOutputDs4 => PadOutputSelection.DualShock4, _ => PadOutputSelection.Auto };
+        set => PadOutput = value switch { PadOutputSelection.Xbox360 => PadOutputX360, PadOutputSelection.DualShock4 => PadOutputDs4, _ => PadOutputAuto };
     }
 
     public static string DefaultPath
@@ -84,7 +100,7 @@ public sealed class HubConfig
 
     /// <summary>
     /// Fixes everything a hand-edited file could break: invalid or missing code (a new one is
-    /// generated), name length, out-of-range timings and ports, unknown output kind.
+    /// generated), name length, out-of-range timings and ports, unknown output kinds.
     /// Returns true when something was changed and the file should be saved.
     /// </summary>
     public bool Normalize()
@@ -105,9 +121,15 @@ public sealed class HubConfig
         if (output is not (OutputVJoy or OutputX360 or OutputNone)) output = OutputVJoy;
         if (output != Output) { Output = output; changed = true; }
 
+        string padOutput = (PadOutput ?? "").Trim().ToLowerInvariant();
+        if (padOutput is not (PadOutputAuto or PadOutputX360 or PadOutputDs4)) padOutput = PadOutputAuto;
+        if (padOutput != PadOutput) { PadOutput = padOutput; changed = true; }
+
         changed |= Clamp(FailsafeMs, 50, 2000, v => FailsafeMs = v);
         changed |= Clamp(PulseMs, 10, 500, v => PulseMs = v);
         changed |= Clamp(GapMs, 10, 500, v => GapMs = v);
+        changed |= Clamp(TapMs, 10, 500, v => TapMs = v);
+        changed |= Clamp(TapGapMs, 10, 500, v => TapGapMs = v);
 
         Invert ??= new InvertConfig();
         Ports ??= new PortsConfig();
@@ -134,6 +156,9 @@ public sealed class HubConfig
         PulseMs = PulseMs,
         GapMs = GapMs,
         Invert = Invert.Flags,
+        TapMs = TapMs,
+        TapGapMs = TapGapMs,
+        PadOutput = PadOutputSelection,
     };
 
     /// <summary>

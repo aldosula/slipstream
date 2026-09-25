@@ -64,8 +64,14 @@ public sealed record HubEngineOptions
     public int StatusSinkTimeoutMs { get; init; } = 1000;     // endpoints that delivered in the last second
     public int LostAfterMs { get; init; } = 2000;
     public AxisInvert Invert { get; init; } = AxisInvert.None;
+    /// <summary>Controller mode: a replayed tap is down this long (12.4 rule 3, tap_ms).</summary>
+    public int TapMs { get; init; } = 50;
+    /// <summary>Controller mode: release between replayed taps (12.4 rule 3, gap_ms).</summary>
+    public int TapGapMs { get; init; } = 40;
+    /// <summary>Controller mode: which virtual pad to drive (12.4 rule 5).</summary>
+    public PadOutputSelection PadOutput { get; init; } = PadOutputSelection.Auto;
 
-    public LinkTiming Timing => LinkTiming.FromMilliseconds(FailsafeMs, PulseMs, GapMs, TakeoverMs);
+    public LinkTiming Timing => LinkTiming.FromMilliseconds(FailsafeMs, PulseMs, GapMs, TakeoverMs, TapMs, TapGapMs);
 }
 
 /// <summary>Per-transport counters in a snapshot.</summary>
@@ -131,6 +137,37 @@ public sealed record HubSnapshot
     public IReadOnlyList<string> StatusEndpoints { get; init; } = Array.Empty<string>();
     public string PairingCode { get; init; } = "";
     public string FingerprintHex { get; init; } = "";
+
+    // ------------------------------------------------------------ controller mode ---
+
+    /// <summary>Type of the last applied packet: wheel (INPUT) or controller (PAD). None before the first.</summary>
+    public LinkMode Mode { get; init; }
+    /// <summary>The phone's layout in controller mode, <see cref="PadStyle.None"/> in wheel mode.</summary>
+    public PadStyle Style { get; init; }
+    /// <summary>The newest PAD packet as decoded from the wire (default when none was applied).</summary>
+    public PadPacket LastPad { get; init; }
+    /// <summary>What the pad shows now, after the tap scheduler, failsafe and PAUSED.</summary>
+    public PadFrame PadFrame { get; init; }
+    /// <summary>The mapped pad frame last written (or computed, when no pad device is plugged in yet).</summary>
+    public PadOutputFrame PadOutput { get; init; }
+    /// <summary>The pad frame written when the newest PAD packet was applied (does not follow a later failsafe).</summary>
+    public PadOutputFrame AcceptedPadOutput { get; init; }
+    /// <summary>Presses the virtual pad showed per canonical button (passed through and replayed together).</summary>
+    public IReadOnlyList<long> TapsEmitted { get; init; } = Array.Empty<long>();
+    /// <summary>Of those, taps the scheduler replayed because packets were lost.</summary>
+    public IReadOnlyList<long> TapsReplayed { get; init; } = Array.Empty<long>();
+    /// <summary>Replay taps queued but not started, per canonical button.</summary>
+    public IReadOnlyList<int> TapsPending { get; init; } = Array.Empty<int>();
+    /// <summary>The "Controller output" setting.</summary>
+    public PadOutputSelection PadOutputSelection { get; init; }
+    /// <summary>The pad kind the setting resolves to for the current style (Auto follows STYLE_PS).</summary>
+    public OutputKind PadOutputWanted { get; init; }
+    /// <summary>True once a pad device is plugged in (it stays until the hub quits or the output changes).</summary>
+    public bool PadPlugged { get; init; }
+    public string PadOutputName { get; init; } = "";
+    public OutputKind PadOutputKind { get; init; }
+    public OutputState PadOutputState { get; init; }
+    public string PadOutputDetail { get; init; } = "";
 
     public TransportStats Transport(TransportKind kind) => Transports[(int)kind];
 }

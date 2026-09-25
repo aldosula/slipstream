@@ -20,7 +20,12 @@ public sealed class HubHost : IDisposable
         Config = HubConfig.LoadOrCreate(configPath, out string? note);
         LoadNote = note;
         IOutputDevice output = OutputFactory.Create(Config.OutputKind);
-        Runtime = new HubRuntime(Config, output, new HubRuntimeOptions { HotThreadInit = Native.Mmcss.JoinGamesTask });
+        Runtime = new HubRuntime(Config, output, new HubRuntimeOptions
+        {
+            HotThreadInit = Native.Mmcss.JoinGamesTask,
+            // Controller mode: the virtual DualShock 4 or Xbox 360 pad, plugged in on the first PAD packet.
+            PadOutputFactory = OutputFactory.CreatePad,
+        });
     }
 
     public string ConfigPath { get; }
@@ -30,7 +35,7 @@ public sealed class HubHost : IDisposable
     public HubEngine Engine => Runtime.Engine;
     public string? LastSaveError { get; private set; }
 
-    /// <summary>Raised after the pairing code, the hub name or the output changed.</summary>
+    /// <summary>Raised after the pairing code, the hub name or an output changed.</summary>
     public event EventHandler? Changed;
 
     public void Start() => Runtime.Start();
@@ -40,9 +45,19 @@ public sealed class HubHost : IDisposable
     private void SelectOutput(OutputKind kind, bool force)
     {
         if (!force && Config.OutputKind == kind && Engine.Output.Kind == kind) return;
-        IOutputDevice next = OutputFactory.Create(kind);
-        IOutputDevice old = Engine.SetOutput(next);
-        try { old.Dispose(); } catch { /* a failing old driver must not block the switch */ }
+        // Bracketed so a controller-mode pad of the same kind leaves its slot first and no pad is plugged in
+        // while the old wheel device still exists (the new one would take a later XInput slot).
+        Engine.BeginOutputChange(kind);
+        try
+        {
+            IOutputDevice next = OutputFactory.Create(kind);
+            IOutputDevice old = Engine.SetOutput(next);
+            try { old.Dispose(); } catch { /* a failing old driver must not block the switch */ }
+        }
+        finally
+        {
+            Engine.EndOutputChange();
+        }
         Config.OutputKind = kind;
         Save();
         Changed?.Invoke(this, EventArgs.Empty);
@@ -53,6 +68,25 @@ public sealed class HubHost : IDisposable
         if (Engine.Output is IRetryableOutput r) r.Retry();
         // A device that failed in its constructor has the right kind already: build it again.
         else SelectOutput(Config.OutputKind, force: true);
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Sets the controller output (Auto, Xbox 360, DualShock 4). In controller mode the pad is replaced at once.</summary>
+    public void SelectPadOutput(PadOutputSelection selection)
+    {
+        if (Config.PadOutputSelection == selection) return;
+        Config.PadOutputSelection = selection;
+        Runtime.ApplySettings();
+        Save();
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Checks the pad's driver again (after the user installed or restarted ViGEmBus).</summary>
+    public void RetryPadOutput()
+    {
+        if (Engine.PadOutput is IRetryableOutput r) r.Retry();
+        // A pad that failed in its constructor cannot retry itself: plug in a new one.
+        else Engine.ReplugPad();
         Changed?.Invoke(this, EventArgs.Empty);
     }
 

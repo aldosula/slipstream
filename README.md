@@ -1,24 +1,29 @@
 # Slipstream
 
-Slipstream turns an Android phone into a racing wheel and pedal set for Windows games.
+Slipstream turns an Android phone into a racing wheel and pedal set for Windows games. Since
+version 0.2.0 it can also be a **PlayStation-style or Xbox-style gamepad** for PC games
+([Controller mode](#controller-mode)).
 
-- **Slipstream Wheel** is the phone app (`.apk`). You steer by tilting the phone, press the
-  throttle and brake by sliding your thumbs on the screen, and shift with the volume keys.
+- **Slipstream Wheel** is the phone app (`.apk`). As a wheel you steer by tilting the phone, press
+  the throttle and brake by sliding your thumbs on the screen, and shift with the volume keys. As a
+  controller the screen shows sticks, triggers, face buttons, a D-pad and, in PlayStation style, a
+  touchpad.
 - **Slipstream Hub** is the PC program (`.exe`). It receives the phone's controls and drives a
-  virtual game controller: **vJoy** (a DirectInput joystick) or an **Xbox 360** pad through ViGEmBus.
+  virtual game controller: for the wheel **vJoy** (a DirectInput joystick) or an **Xbox 360** pad,
+  for controller mode a **DualShock 4** or an **Xbox 360** pad, both through ViGEmBus.
 
 It is built for low delay and a steady link. Every packet carries the complete controller
-state, so a lost packet costs nothing: the next one arrives 2 ms later. Gear shifts are counters,
-not button events, so a shift survives packet loss and is never pressed twice. With Multipath the
+state, so a lost packet costs nothing: the next one arrives 2 ms later. Gear shifts and button
+presses are counters, not button events, so a press survives packet loss and is never pressed twice. With Multipath the
 same packet travels over Wi-Fi and the USB cable at once, and the first copy to arrive wins.
 The wire protocol is specified in [docs/PROTOCOL.md](docs/PROTOCOL.md) and the design in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Nothing leaves your local network: no account, no
 cloud, no telemetry, no update check.
 
-> **Status, version 0.1.0.** Both programs build, their test suites pass, and a cross-implementation
-> wire test runs the phone's own link code against the real hub over loopback. Nothing has run yet on a
-> real Windows PC, with real vJoy or ViGEmBus, or on a real phone. See [docs/TESTING.md](docs/TESTING.md)
-> for exactly what was and was not tested.
+> **Status, version 0.2.0.** Both programs build, their test suites pass, and a cross-implementation
+> wire test runs the phone's own link code against the real hub over loopback, for the wheel and for
+> controller mode. Nothing has run yet on a real Windows PC, with real vJoy or ViGEmBus, in a game, or on
+> a real phone. See [docs/TESTING.md](docs/TESTING.md) for exactly what was and was not tested.
 
 ## Contents
 
@@ -28,12 +33,13 @@ cloud, no telemetry, no update check.
 4. [First pairing](#first-pairing)
 5. [Driving](#driving)
 6. [Binding controls in a game](#binding-controls-in-a-game)
-7. [Build from source](#build-from-source)
-8. [Troubleshooting](#troubleshooting)
+7. [Controller mode](#controller-mode)
+8. [Build from source](#build-from-source)
+9. [Troubleshooting](#troubleshooting)
 
 ## Connection modes
 
-Pick the mode on the phone's connect screen before you press **Drive**.
+Pick the mode on the phone's connect screen before you press **Drive** (or **Play** in controller mode).
 
 | Mode | How it connects | Use it when |
 |---|---|---|
@@ -42,29 +48,33 @@ Pick the mode on the phone's connect screen before you press **Drive**.
 | **Wi-Fi** | UDP on the local network. The hub announces itself, the phone finds it. | You want no cable. Best on 5 GHz. Also works when the PC joins the **phone's hotspot** (no router in between) or over **USB tethering**. |
 | **Bluetooth gamepad** (experimental) | The phone pairs with Windows as a standard game controller. No hub, no driver. | You cannot install anything on the PC. Needs Android 9 or later, and some phone makers disable this Bluetooth profile; the app tells you if yours does. |
 
-Wi-Fi, USB and Multipath need Slipstream Hub on the PC. Bluetooth does not.
+Wi-Fi, USB and Multipath need Slipstream Hub on the PC. Bluetooth does not, but it offers only the
+wheel: controller mode always runs through the hub.
 
 ## PC setup
 
 Windows 10 (1903 or later) or Windows 11, 64-bit.
 
-1. **Get Slipstream Hub.** Download `Slipstream-Hub-0.1.0-win-x64.exe` from this repository's Releases page (or build it,
+1. **Get Slipstream Hub.** Download `Slipstream-Hub-0.2.0-win-x64.exe` from this repository's Releases page (or build it,
    see [Build from source](#build-from-source)). It is a single self-contained file: no .NET install is
    needed. To check the file, compare its hash with `SHA256SUMS.txt` from the same release. In PowerShell:
-   `Get-FileHash .\Slipstream-Hub-0.1.0-win-x64.exe -Algorithm SHA256`.
+   `Get-FileHash .\Slipstream-Hub-0.2.0-win-x64.exe -Algorithm SHA256`.
    The exe is not code-signed, so Windows SmartScreen may warn on first start. Choose **More info**,
    then **Run anyway**, only for a file whose hash you checked.
-2. **Install vJoy.** Use the signed, maintained 2.2.x fork from
+2. **Install vJoy (for the wheel).** Use the signed, maintained 2.2.x fork from
    [github.com/BrunnerInnovation/vJoy/releases](https://github.com/BrunnerInnovation/vJoy/releases).
    Run the installer and restart the PC if it asks.
 3. **Configure vJoy device 1.** Open **Configure vJoy** from the Start menu. Select tab **1**, tick
    **Enable vJoy**, then under **Axes** tick **X, Y, Z, Rx and Ry**, set **Number of Buttons** to
    **32**, leave POV hats at 0, and press **Apply**. The hub checks this device and tells you exactly
    what is missing if the configuration is incomplete.
-4. **Optional: ViGEmBus, for Xbox 360 mode.** Some games only accept an Xbox controller. Install
-   ViGEmBus from [github.com/nefarius/ViGEmBus/releases](https://github.com/nefarius/ViGEmBus/releases).
-   The project is retired upstream but still works on Windows 10 and 11. Then choose **Xbox 360**
-   under **Game controller** in the hub.
+4. **ViGEmBus, required for controller mode (and for the wheel's Xbox 360 mode).** Install ViGEmBus
+   from [github.com/nefarius/ViGEmBus/releases](https://github.com/nefarius/ViGEmBus/releases). The
+   project is retired upstream but still works on Windows 10 and 11. Controller mode creates its
+   DualShock 4 or Xbox 360 pad through it, so without ViGEmBus controller mode shows an error on the hub
+   and on the phone. For the wheel it is optional: some racing games only accept an Xbox controller;
+   then choose **Xbox 360** under **Wheel output** in the hub. If you only use controller mode, you can
+   skip vJoy and set **Wheel output** to **None**.
 5. **Optional: Android platform-tools, for USB and Multipath.** Download them from
    [developer.android.com/tools/releases/platform-tools](https://developer.android.com/tools/releases/platform-tools)
    and unzip them anywhere. The hub finds `adb` on `PATH`, in
@@ -85,9 +95,11 @@ choose **Quit**.
 
 Android 8.0 or later.
 
-1. **Copy the APK to the phone.** Download `Slipstream-Wheel-0.1.0-debug.apk` from the Releases page and
+1. **Copy the APK to the phone.** Download `Slipstream-Wheel-0.2.0-debug.apk` from the Releases page and
    copy it over the USB cable (file transfer mode), or install it from the PC with
-   `adb install Slipstream-Wheel-0.1.0-debug.apk` once USB debugging is on (step 3).
+   `adb install Slipstream-Wheel-0.2.0-debug.apk` once USB debugging is on (step 3). It installs over
+   0.1.0 as an update (same package and signing certificate), so the stored pairing and settings stay on
+   the phone.
 2. **Allow unknown sources.** Open the APK in the phone's file manager. Android asks to allow that app
    to install unknown apps: open the setting, allow it, go back and press **Install**. Google Play Protect
    may warn about an app from an unknown developer; this build is signed with a development (debug)
@@ -110,8 +122,8 @@ Android 8.0 or later.
 3. The phone shows **Paired with** and the hub's name. Under **Hubs on this network** your PC appears,
    marked **Paired**, as soon as its announcement arrives (the phone and PC must share the Wi-Fi, the
    phone's hotspot or USB tethering). In USB mode the phone connects over the cable without it.
-4. Choose a mode under **Connection** and press **Drive**. The hub's state changes from **Waiting for
-   the phone** to **Live**.
+4. Under **Play as** choose **Wheel** or **Controller**, choose a mode under **Connection**, and press
+   **Drive** (or **Play**). The hub's state changes from **Waiting for the phone** to **Live**.
 
 The pairing code never travels over the network: the QR code and the screen are the only places it
 exists. Packets carry a tag made from it, so no other device or app can drive your car. **New code** in
@@ -181,6 +193,116 @@ Tips:
 Most games that support an Xbox pad bind these by default. In this mode only steering follows
 **Invert axes**, because triggers have a fixed direction.
 
+## Controller mode
+
+New in 0.2.0. The phone becomes a gamepad for PC games: two sticks, two analog triggers, shoulder
+buttons, face buttons, a D-pad and the menu buttons, and in PlayStation style also a touchpad and motion.
+It uses the same pairing, the same hub and the same connection modes as the wheel (Wi-Fi, USB cable or
+Multipath; not Bluetooth), and the same protection against lost packets: the hub replays a button press
+whose packets were lost, and a packet that arrives twice never presses a button twice
+([docs/TESTING.md](docs/TESTING.md) lists what this was tested with, and its limits).
+
+On the connect screen, under **Play as**, choose **Controller**. The **Profile** row shows the layout in
+use; **Change** opens **Controller profiles**. Press **Play** and hold the phone in landscape.
+
+**It works with PC games only.** A real PlayStation 5, PlayStation 4 or Xbox console cannot be controlled:
+consoles accept only controllers that pass their own authentication, which a phone cannot do. The
+"PlayStation" and "Xbox" in the names describe the layout and the virtual pad on the PC.
+
+### PlayStation style and Xbox style
+
+Two built-in profiles, drawn after the real controllers:
+
+| | PlayStation style | Xbox style |
+|---|---|---|
+| Layout | D-pad on the left, both sticks low toward the middle, face buttons on the right, touchpad at the top centre | Left stick on the left, D-pad and right stick low toward the middle, face buttons on the right |
+| Buttons | Cross, Circle, Square, Triangle, L1, R1, L2, R2, L3, R3, Create, Options, PS, Mute, touchpad click | A, B, X, Y, LB, RB, LT, RT, stick presses, View, Menu, Xbox, Share |
+| Touchpad | two fingers, and a short tap is a touchpad click | none |
+| Motion (gyro and accelerometer) | sent to the PC | not sent |
+| Windows sees (hub setting **Auto**) | a DualShock 4 | an Xbox 360 controller |
+
+### What Windows sees
+
+**ViGEmBus is required for controller mode** (see [PC setup](#pc-setup), step 4). The hub plugs in one
+virtual pad through ViGEmBus when the first controller packet arrives, and keeps it plugged in until the
+hub quits or you change the setting, so a game does not lose its controller when you pause. The hub's
+**Controller output** setting picks the pad:
+
+- **Auto** (default): PlayStation style gives a DualShock 4, Xbox style gives an Xbox 360 controller.
+- **Xbox 360**: always an Xbox 360 controller. Use it for games that only read XInput.
+- **DualShock 4**: always a DualShock 4. Games with PlayStation support can then show PlayStation button
+  prompts, and only the DualShock 4 carries the touchpad and motion.
+
+Touchpad and motion need a recent ViGEmBus. With an older one the hub still connects the DualShock 4,
+without them, and says so; install the latest ViGEmBus release and press **Retry** under **Controller
+output**.
+
+If the **Wheel output** is Xbox 360 as well, one virtual Xbox 360 pad serves both modes, so a game never
+sees a second controller take player one. The hub's live panel shows the active mode and, in controller
+mode, both sticks, the triggers and a lamp per button.
+
+| On the phone (PlayStation / Xbox) | Xbox 360 pad | DualShock 4 |
+|---|---|---|
+| Cross / A, Circle / B, Square / X, Triangle / Y | A, B, X, Y | Cross, Circle, Square, Triangle |
+| L1 / LB, R1 / RB | LB, RB | L1, R1 |
+| L2 / LT, R2 / RT | left and right trigger | L2 and R2 (analog; the digital bit is set from about 3 %) |
+| L3, R3 (stick presses) | left and right stick click | L3, R3 |
+| Create / View | Back | Share |
+| Options / Menu | Start | Options |
+| PS / Xbox | Guide | PS |
+| D-pad | D-pad | D-pad |
+| Left and right stick | left and right thumb stick | left and right stick |
+| Touchpad click, fingers (PlayStation) | not sent | touchpad click, two fingers |
+| Motion (PlayStation) | not sent | gyro and accelerometer |
+| Mute (PlayStation), Share (Xbox) | not sent | not sent |
+
+### Playing
+
+- A finger belongs to the control it lands on until it lifts. Sticks and triggers keep following it
+  outside their outline. With **Slide to press** (on by default) you can slide a finger from one face
+  button or D-pad direction to the next without lifting.
+- **Sticks:** a fixed centre or a floating one (where your thumb lands), a deadzone (8 % by default) and
+  a response curve. **Stick press** (L3 or R3) can be a double tap, a firm press, both, or off.
+- **Triggers:** slide along the bar for a partial press, or **Tap** mode for full on touch.
+- **Volume keys** keep changing the volume unless you map them: in the phone's Settings, under
+  **Controller**, set **Volume up key** and **Volume down key** to any button.
+- A short haptic tick confirms each press (strength per control, 0 turns it off). With **Rumble** on in
+  the phone's Settings, the game's rumble makes the phone vibrate.
+- Nothing else is drawn while the link is fine. A status chip appears only when something is wrong (a
+  slow round trip, loss, no reply from the hub, or a hub output error such as a missing ViGEmBus) and
+  names the problem.
+
+### The pause ring
+
+A small, faint ring sits at the top centre. **Hold it for 1.5 seconds**: it fills up and the pause menu
+opens with **Resume**, **Edit layout**, **Switch profile** and **Exit**. A shorter touch does nothing, so a
+thumb brushing past cannot pause the game. While the menu is open the hub holds every control at rest
+(sticks centred, triggers and buttons released) and the virtual pad stays plugged in.
+
+### Gyro aim
+
+Off by default. In the layout editor open **Options** and set **Gyro aim** to **Always** or **On stick**
+(only while a finger is on the right stick). Turning and tilting the phone then moves the right stick, on
+top of what your thumb does, which makes fine aiming easier. **Gyro sensitivity** sets the speed and
+**Invert gyro Y** flips up and down. Gyro aim works in both styles, because it arrives as right stick
+movement. It is separate from the raw motion that PlayStation style sends to the DualShock 4.
+
+### Layouts and profiles
+
+- **Controller profiles** (from the connect screen's **Profile** row, or from the phone's Settings) lists
+  the two built-in profiles and your own. **More** on a profile offers **Use**, **Edit layout**,
+  **Duplicate**, **Rename**, **Reset** and **Delete**. The built-in PlayStation and Xbox profiles cannot be
+  renamed or deleted, only reset; duplicate one to make your own. The last profile you used is remembered.
+- **The editor** opens from **Edit layout** on the profile screen or in the pause menu. Drag a control to
+  move it; pinch, or drag a corner handle, to resize. **Grid** snaps to 4 dp, **Mirror** swaps left and
+  right for left-handed play, **Reset** goes back to the default layout, **Options** holds the layout-wide
+  settings (Slide to press, Gyro aim). Touch a control to set its own options: opacity, haptic tick, shape
+  and, depending on the control, trigger mode, stick centre, stick press, deadzone and response curve.
+  **Save** keeps the changes. Controls stay clear of the curved screen edges and the camera cutout;
+  overlapping controls are allowed but outlined as a warning.
+- On a phone with another screen size, positions scale with the screen and controls keep their size,
+  shrinking together only if two of them would otherwise overlap.
+
 ## Build from source
 
 The repository has two independent projects and one shared protocol spec with byte-exact test vectors
@@ -202,7 +324,10 @@ A headless hub and a fake phone for testing run on any OS:
 ```sh
 dotnet run --project tools/Slipstream.Cli -c Release -- hub --code SLIP-STRE-AMTE-ST22
 dotnet run --project tools/Slipstream.Cli -c Release -- sim --code SLIP-STRE-AMTE-ST22 --loss 0.2 --pulses 10
+dotnet run --project tools/Slipstream.Cli -c Release -- sim --code SLIP-STRE-AMTE-ST22 --pad --style ps --loss 0.2 --taps 12
 ```
+
+The last line is a fake phone in controller mode (PlayStation layout, 12 scripted taps, 20 % loss).
 
 **Android app** (`android/`, JDK 17 and the Android SDK with platform 35 and build-tools 35.0.0)
 
@@ -219,8 +344,9 @@ tools/interop.sh
 ```
 
 It builds the headless hub, picks free ports, and runs `InteropTest` from the Android test suite: the
-app's own packet writer, framing, STATUS decoder, link statistics and link engine against real hub
-processes, over UDP, framed TCP, multipath and beacon discovery. It exits non-zero on any failure,
+app's own packet writers (wheel and controller), framing, STATUS decoder, link statistics and link engine
+against real hub processes, over UDP, framed TCP, multipath and beacon discovery, and in controller mode
+also the switch between wheel and controller, PAUSED and the failsafe. It exits non-zero on any failure,
 including a test that was skipped instead of run. The beacon run broadcasts a test beacon on your LAN
 for about two seconds.
 
@@ -243,6 +369,10 @@ for about two seconds.
 | Delay or stutter over Wi-Fi | 2.4 GHz band, a crowded channel, or phone power saving | Use 5 GHz or the phone's hotspot, or plug in the cable and use **Multipath**. The hub's **Round trip (phone)** and **Loss** figures show the link quality. |
 | **Signal lost** on the hub while driving | Wi-Fi dropouts longer than 200 ms | Use Multipath with the cable. Raise **Failsafe (ms)** only if you accept a longer release on real signal loss. |
 | A second phone stays on **WAITING FOR HUB** while the first one drives | Only one phone drives at a time. The hub ignores the second phone until the first has been silent for 300 ms, and sends it nothing meanwhile, so it looks the same as a stopped hub | Leave the drive screen on the first phone; the second takes over within 300 ms. **HUB BUSY** shows only briefly, when a phone restarts its drive screen while the hub still tracks its previous session. |
+| Controller mode: the phone says **Hub output error: is ViGEmBus installed?** | ViGEmBus is missing, so the hub cannot create the virtual pad | Install ViGEmBus (PC setup, step 4) and press **Retry** under **Controller output** in the hub. |
+| Controller mode: **No reply from the hub** on the phone, while the wheel works | The PC runs Slipstream Hub 0.1.0, which ignores controller packets | Install Slipstream Hub 0.2.0. |
+| Controller mode: the hub's pad lamps move but the game does not react | The game reads only Xbox controllers (XInput), or it was started before the virtual pad appeared | Set **Controller output** to **Xbox 360**, then restart the game with the phone already playing. |
+| Controller mode: the touchpad or motion does nothing in the game | Xbox style or an Xbox 360 output (neither has them), or an older ViGEmBus (the hub says so) | Use PlayStation style with **Controller output** on **Auto** or **DualShock 4**, and the latest ViGEmBus. |
 | Bluetooth gamepad mode says the profile is not supported | The phone maker disabled the Bluetooth HID device profile, or Android is older than 9 | Use Wi-Fi or USB with the hub instead. |
 
 ## Project layout

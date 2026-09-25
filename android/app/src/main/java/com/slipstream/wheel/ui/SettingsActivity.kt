@@ -1,5 +1,7 @@
 package com.slipstream.wheel.ui
 
+import android.app.AlertDialog
+import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
 import android.text.Editable
@@ -27,12 +29,13 @@ import com.slipstream.wheel.LinkMode
 import com.slipstream.wheel.PedalMode
 import com.slipstream.wheel.R
 import com.slipstream.wheel.Settings
+import com.slipstream.wheel.pad.PadButton
 import com.slipstream.wheel.protocol.Slp
 import kotlin.math.roundToInt
 
 /**
- * Every tunable of ARCHITECTURE.md section 3, grouped by what the driver touches. Each change
- * is saved at once and applies the next time the drive screen opens.
+ * Every tunable of ARCHITECTURE.md sections 3 and 7, grouped by what the player touches. Each
+ * change is saved at once and applies the next time the drive or play screen opens.
  */
 class SettingsActivity : ComponentActivity() {
     private lateinit var settings: Settings
@@ -169,6 +172,17 @@ class SettingsActivity : ComponentActivity() {
             addView(labels())
         }
 
+        // Controller mode
+        section(getString(R.string.settings_controller)).apply {
+            addView(volumeKey(getString(R.string.volume_up_key), settings.padVolumeUp) { settings.padVolumeUp = it })
+            addView(Ui.divider(context))
+            addView(volumeKey(getString(R.string.volume_down_key), settings.padVolumeDown) { settings.padVolumeDown = it })
+            addView(Ui.divider(context))
+            addView(Ui.row(context, getString(R.string.profiles), getString(R.string.settings_profiles_hint)).apply {
+                setOnClickListener { startActivity(Intent(context, ProfilesActivity::class.java)) }
+            })
+        }
+
         // Link
         section("Link").apply {
             val modes = listOf(LinkMode.MULTIPATH, LinkMode.WIFI, LinkMode.USB, LinkMode.BLUETOOTH)
@@ -276,6 +290,29 @@ class SettingsActivity : ComponentActivity() {
             addView(description(detail))
             addView(Ui.segmented(context, options, selected, onSelect), Ui.vertical(this@SettingsActivity, top = 10f))
         }
+
+    /** A volume key's button in controller mode: not mapped (the volume changes) or any canonical button. */
+    private fun volumeKey(title: String, current: Int, onPick: (Int) -> Unit): View {
+        val badge = Ui.badge(this, mappingName(current), accent = current != Settings.UNMAPPED)
+        return Ui.row(this, title, getString(R.string.volume_key_hint), end = badge).apply {
+            setOnClickListener {
+                val names = arrayOf(getString(R.string.not_mapped)) + Array(PadButton.COUNT) { PadButton.bothNames(it) }
+                val checked = if (current == Settings.UNMAPPED) 0 else current + 1
+                AlertDialog.Builder(context)
+                    .setTitle(title)
+                    .setSingleChoiceItems(names, checked) { dialog, which ->
+                        onPick(if (which == 0) Settings.UNMAPPED else which - 1)
+                        dialog.dismiss()
+                        populate()
+                    }
+                    .setNegativeButton(R.string.cancel, null)
+                    .show()
+            }
+        }
+    }
+
+    private fun mappingName(bit: Int): String =
+        if (bit == Settings.UNMAPPED) getString(R.string.not_mapped) else PadButton.bothNames(bit)
 
     private fun action(title: String, detail: String, onClick: () -> Unit): View =
         Ui.row(this, title, detail, end = Ui.badge(this, "Reset", accent = false)).apply {

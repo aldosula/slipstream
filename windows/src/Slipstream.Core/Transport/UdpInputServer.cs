@@ -6,7 +6,7 @@ using Slipstream.Core.Protocol;
 namespace Slipstream.Core.Transport;
 
 /// <summary>
-/// Wi-Fi link: INPUT in on UDP 47800, STATUS out to each sender's address from the same socket.
+/// Wi-Fi link: INPUT and PAD in on UDP 47800, STATUS out to each sender's address from the same socket.
 /// One dedicated thread at <see cref="ThreadPriority.Highest"/> does a blocking receive into a
 /// reused buffer and hands the bytes to <see cref="HubEngine"/>, which writes the virtual device
 /// before the next receive. The receive path does not allocate.
@@ -146,6 +146,13 @@ public sealed class UdpInputServer : IDisposable
         try
         {
             ReadOnlySpan<byte> data = ctx.Buffer.AsSpan(0, n);
+            if (n == Wire.PadLength)
+            {
+                if (_engine.ValidatePad(TransportKind.Udp, data, out PadPacket pad, out PairingKey padKey) != ReceiveOutcome.Accepted)
+                    return true;
+                _engine.Accept(TransportKind.Udp, in pad, FindOrAddPeer(ctx.From), rx, padKey);
+                return true;
+            }
             if (_engine.Validate(TransportKind.Udp, data, out InputPacket packet, out PairingKey key) != ReceiveOutcome.Accepted)
                 return true;
             // Peers are only created for packets with a valid tag, so strangers cannot grow the table.

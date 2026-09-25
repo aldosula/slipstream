@@ -2,7 +2,7 @@ package com.slipstream.wheel.protocol
 
 /**
  * TCP framing for the USB link (PROTOCOL.md section 8): u16 little-endian length, then
- * exactly that many bytes of one INPUT or STATUS packet.
+ * exactly that many bytes of one INPUT, PAD or STATUS packet.
  */
 object Framing {
     const val HEADER_LEN = 2

@@ -6,9 +6,9 @@ using Slipstream.Core.Protocol;
 namespace Slipstream.Core.Transport;
 
 /// <summary>
-/// USB link: framed INPUT in, framed STATUS out, on 127.0.0.1:47802 (reached from the phone through
+/// USB link: framed INPUT and PAD in, framed STATUS out, on 127.0.0.1:47802 (reached from the phone through
 /// <c>adb reverse tcp:47802 tcp:47802</c>). TCP_NODELAY on every connection, one reader thread per
-/// connection, and a frame whose length is not 52 closes the connection.
+/// connection, and a frame whose length is not 52 or 76 closes the connection.
 /// </summary>
 public sealed class TcpInputServer : IDisposable
 {
@@ -55,7 +55,7 @@ public sealed class TcpInputServer : IDisposable
     /// <summary>Connections accepted since start.</summary>
     public long AcceptedConnections => Interlocked.Read(ref _accepted);
 
-    /// <summary>Connections closed because a frame length was not 52.</summary>
+    /// <summary>Connections closed because a frame length was neither 52 nor 76.</summary>
     public long ClosedForBadLength => Interlocked.Read(ref _closedBadLength);
 
     /// <summary>Connections that were already gone (reset) when the hub tried to set them up.</summary>
@@ -211,13 +211,13 @@ public sealed class TcpInputServer : IDisposable
         {
             IDisposable? hot = null;
             try { hot = _server._hotThreadInit?.Invoke(); } catch { /* scheduling hint only */ }
-            byte[] buffer = GC.AllocateArray<byte>(Wire.InputLength, pinned: true);
+            byte[] buffer = GC.AllocateArray<byte>(Wire.PadLength, pinned: true);
             IClock clock = _server._engine.Clock;
             try
             {
                 while (_open)
                 {
-                    Framing.ReadResult r = Framing.ReadFrame(_socket, buffer, Wire.InputLength);
+                    Framing.ReadResult r = Framing.ReadHubFrame(_socket, buffer, out int length);
                     if (r == Framing.ReadResult.BadLength)
                     {
                         Interlocked.Increment(ref _server._closedBadLength);
@@ -226,7 +226,7 @@ public sealed class TcpInputServer : IDisposable
                     }
                     if (r != Framing.ReadResult.Ok) break;
                     long rx = clock.GetTimestamp();
-                    ReceiveOutcome outcome = _server._engine.Receive(TransportKind.Tcp, buffer, this, rx);
+                    ReceiveOutcome outcome = _server._engine.Receive(TransportKind.Tcp, buffer.AsSpan(0, length), this, rx);
                     if (outcome is ReceiveOutcome.Accepted or ReceiveOutcome.AcceptedNewEpoch or ReceiveOutcome.Duplicate)
                         Volatile.Write(ref _lastActivityMs, Environment.TickCount64);
                 }

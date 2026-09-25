@@ -7,7 +7,11 @@ import com.slipstream.wheel.link.BeaconGate
 import com.slipstream.wheel.link.LinkConfig
 import com.slipstream.wheel.link.LinkEngine
 import com.slipstream.wheel.link.LinkStats
+import com.slipstream.wheel.link.PacketSource
 import com.slipstream.wheel.link.RttMath
+import com.slipstream.wheel.link.StatusSink
+import com.slipstream.wheel.pad.PadButton
+import com.slipstream.wheel.pad.PadState
 import com.slipstream.wheel.protocol.Beacon
 import com.slipstream.wheel.protocol.FrameAssembler
 import com.slipstream.wheel.protocol.FrameSink
@@ -15,14 +19,19 @@ import com.slipstream.wheel.protocol.Framing
 import com.slipstream.wheel.protocol.InputFrame
 import com.slipstream.wheel.protocol.InputPacketWriter
 import com.slipstream.wheel.protocol.Le
+import com.slipstream.wheel.protocol.PadFrame
+import com.slipstream.wheel.protocol.PadPacketReader
+import com.slipstream.wheel.protocol.PadPacketWriter
 import com.slipstream.wheel.protocol.PairingCode
 import com.slipstream.wheel.protocol.PairingKey
 import com.slipstream.wheel.protocol.Seq
 import com.slipstream.wheel.protocol.Slp
 import com.slipstream.wheel.protocol.StatusDecoder
 import com.slipstream.wheel.protocol.StatusPacket
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -45,7 +54,9 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.LockSupport
+import kotlin.math.cos
 import kotlin.math.roundToInt
+import kotlin.math.sign
 import kotlin.math.sin
 
 /**
@@ -66,6 +77,10 @@ import kotlin.math.sin
  * packets are built by the real [InputPacketWriter], framed by the real [Framing], STATUS is
  * checked by the real [StatusDecoder] and [FrameAssembler], RTT by [RttMath], loss by [LinkStats].
  * Run e drives the real [LinkEngine] with both of its transports.
+ *
+ * The pad_* runs do the same for controller mode (PROTOCOL.md section 12): PAD packets built from
+ * the real [PadState] by the real [PadPacketWriter], over UDP, framed TCP and multipath, then the
+ * real [LinkEngine] switching between wheel and pad within one epoch, and PAUSED and failsafe.
  */
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 class InteropTest {
@@ -518,7 +533,7 @@ class InteropTest {
                 val recs = statuses.toList()
                 val sentUpTo = IntArray(n + 1)
                 for (q in 1..n) sentUpTo[q] = sentUpTo[q - 1] + if (sent[q]) 1 else 0
-                val summary = checkStatuses(plan, recs, epoch, tUs, sent, sentUpTo, lastSendNs)
+                val summary = checkStatuses(plan.packets, plan.useUdp, plan.useTcp, recs, epoch, tUs, sent, sentUpTo, lastSendNs)
                 val sentCount = sentUpTo[n]
 
                 // LinkStats, fed the real STATUS stream, reports the loss the hub measured.
@@ -610,21 +625,29 @@ class InteropTest {
         f.flags = if (plan.multipath) Slp.FLAG_MULTIPATH else 0
     }
 
-    /** (b): every STATUS decoded and tag-checked by the app's decoder, then checked field by field. */
+    /**
+     * (b): every STATUS decoded and tag-checked by the app's decoder, then checked field by field.
+     * [padOutput] is -1 for the wheel (output byte 0, the headless hub's wheel output is "none"), or
+     * the pad kind a controller-mode run expects once the pad is plugged in. With [exactCounts] false
+     * (multipath with packets lost on one path only) [sentUpTo] is a lower bound for `accepted`.
+     */
     private fun checkStatuses(
-        plan: Plan,
+        n: Int,
+        useUdp: Boolean,
+        useTcp: Boolean,
         recs: List<StatusRecord>,
         epoch: Int,
         tUs: IntArray,
         sent: BooleanArray,
         sentUpTo: IntArray,
         lastSendNs: Long,
+        padOutput: Int = -1,
+        exactCounts: Boolean = true,
     ): JSONObject {
-        val n = plan.packets
         val out = JSONObject()
         val slots = buildList {
-            if (plan.useUdp) add(SLOT_UDP)
-            if (plan.useTcp) add(SLOT_TCP)
+            if (useUdp) add(SLOT_UDP)
+            if (useTcp) add(SLOT_TCP)
         }
         var maxHoldActive = 0
         for (slot in slots) {
@@ -632,14 +655,27 @@ class InteropTest {
             val label = if (slot == SLOT_UDP) "udp" else "tcp"
             assertTrue("STATUS received on $label", mine.isNotEmpty())
             var prevSeq = 0
+            var padSeen = false
             for (r in mine) {
                 assertEquals("STATUS epoch is ours", epoch, r.epoch)
                 val l = r.lastSeq
                 assertTrue("last_seq $l is a seq that was sent", l in 1..n && sent[l])
                 assertEquals("echo_t_us is the t_us of packet last_seq $l", tUs[l], r.echoTUs)
-                assertEquals("accepted at last_seq $l", sentUpTo[l], r.accepted)
-                assertEquals("missing at last_seq $l", l - sentUpTo[l], r.missing)
-                assertEquals("output byte of the headless hub (none, no error)", 0, r.output)
+                if (exactCounts) {
+                    assertEquals("accepted at last_seq $l", sentUpTo[l], r.accepted)
+                    assertEquals("missing at last_seq $l", l - sentUpTo[l], r.missing)
+                } else {
+                    assertEquals("accepted + missing at last_seq $l", l, r.accepted + r.missing)
+                    assertTrue("accepted ${r.accepted} at last_seq $l within ${sentUpTo[l]}..$l", r.accepted in sentUpTo[l]..l)
+                }
+                if (padOutput < 0) {
+                    assertEquals("output byte of the headless hub (none, no error)", 0, r.output)
+                } else {
+                    // 0 only until the pad is plugged in on the first PAD packet; then it stays.
+                    if (padSeen) assertEquals("pad output byte once plugged in", padOutput, r.output)
+                    assertTrue("pad output byte ${r.output} is 0 or $padOutput", r.output == 0 || r.output == padOutput)
+                    if (r.output == padOutput) padSeen = true
+                }
                 assertEquals(0, r.hubFlags)
                 assertEquals(0, r.rumbleStrong or r.rumbleWeak)
                 assertTrue("RTT is a plausible round trip, got ${r.rttUs} us", r.rttUs in 0..RTT_MAX_US)
@@ -656,10 +692,12 @@ class InteropTest {
             assertTrue("STATUS runs at 20 Hz: median interval $medianGapUs us", medianGapUs in 40_000..60_000)
             val p50 = rtts[rtts.size / 2]
             assertTrue("median RTT on loopback under 5 ms, got $p50 us", p50 < 5_000)
+            if (padOutput >= 0) assertEquals("the last STATUS on $label names the pad", padOutput, mine.last().output)
             out.put(
                 label,
                 JSONObject()
                     .put("count", mine.size)
+                    .put("final_output", mine.last().output)
                     .put("median_interval_ms", medianGapUs / 1000.0)
                     .put("rtt_min_us", rtts.first())
                     .put("rtt_p50_us", p50)
@@ -788,6 +826,930 @@ class InteropTest {
         assertEquals(0, frame.getJSONObject("x360").getInt("buttons"))
     }
 
+    // ======================================================== controller mode (PAD) ===
+    //
+    // PROTOCOL.md section 12. The scripted runs build every PAD packet from the app's real PadState
+    // (held bits and 4-bit tap counters come from TapCounters, exactly as the play screen makes them)
+    // with the real PadPacketWriter. Runs pad_d and pad_e1 drive the real LinkEngine with a PadState.
+    // Expected DualShock 4 and Xbox 360 values are computed here from the 12.5 formulas and the two
+    // controllers' own report layouts, independently of the hub's code.
+
+    /**
+     * PAD (a): 2000 PAD packets over UDP at 500 Hz, PlayStation layout, 400 (20 %) never sent, exactly
+     * 12 short Cross taps. On purpose: a lost press, a lost release, a whole tap lost, a double tap lost,
+     * a press made while the previous one still shows. Also late replays of press packets, tampered
+     * copies that would add a tap, malformed datagrams, and a tap counter jump of 8 (no press).
+     */
+    @Test
+    fun pad_a_udpPlayStation2000PacketsWith20PercentNotSent() {
+        val plan = PadPlan(
+            name = "pad_udp",
+            packets = 2000,
+            stylePs = true,
+            taps = LOSSY_TAPS,
+            expectedReplays = LOSSY_REPLAYS_EXPECTED,
+            preTaps = mapOf(PadButton.CROSS to 7, PadButton.CIRCLE to 9, PadButton.TRIANGLE to 14),
+            jumpSeq = 1300,
+            jumpButton = PadButton.SQUARE,
+            forcedDrops = LOSSY_TAP_DROPS,
+            forcedKeeps = LOSSY_TAP_KEEPS + intArrayOf(1300),
+            finalFrom = 1700,
+            finalState = { psFinal(it) },
+            replays = LATE_COPIES,
+            badTagSeqs = intArrayOf(100, 580, 947, 1190, 1600),
+            malformedSeqs = intArrayOf(150, 650, 1150, 1450, 1650),
+            useUdp = true,
+            useTcp = false,
+            seed = 0x50414431L,
+            padOutput = OUTPUT_DS4,
+            padKind = "ds4",
+        )
+        runPadScripted(plan) { s, final ->
+            assertTaps(s, mapOf(PadButton.CROSS to 12))
+            assertEquals("the phone clamps a stick to -32767 (12.3)", -32767, s.getJSONObject("last_pad").getInt("lx"))
+            assertPadMapped(s.getJSONObject("applied_pad_frame"), final, final.buttons)
+            assertPadNeutral(s.getJSONObject("last_pad_frame"))
+        }
+    }
+
+    /**
+     * PAD (b): the same traffic over framed TCP (the USB link), Xbox layout: frames split and coalesced
+     * on the wire, legal-length frames with bad content, and finally a 77 byte frame (section 8).
+     */
+    @Test
+    fun pad_b_framedTcpXbox2000PacketsWith20PercentNotSent() {
+        val plan = PadPlan(
+            name = "pad_tcp",
+            packets = 2000,
+            stylePs = false,
+            taps = LOSSY_TAPS,
+            expectedReplays = LOSSY_REPLAYS_EXPECTED,
+            preTaps = mapOf(PadButton.CROSS to 3, PadButton.TRIANGLE to 15, PadButton.L1 to 1),
+            jumpSeq = 1300,
+            jumpButton = PadButton.SHARE,
+            forcedDrops = LOSSY_TAP_DROPS,
+            forcedKeeps = LOSSY_TAP_KEEPS + intArrayOf(1300),
+            finalFrom = 1700,
+            finalState = { xboxFinal(it) },
+            replays = LATE_COPIES,
+            badTagSeqs = intArrayOf(100, 580, 947, 1190, 1600),
+            malformedSeqs = intArrayOf(660, 1460),
+            splitSeqs = intArrayOf(101, 203, 307, 409, 511, 613, 719, 821, 923, 1025, 1427, 1831),
+            coalesceSeqs = intArrayOf(150, 350, 550, 950, 1250, 1750),
+            useUdp = false,
+            useTcp = true,
+            seed = 0x50414432L,
+            padOutput = OUTPUT_X360,
+            padKind = "x360",
+        )
+        runPadScripted(plan) { s, final ->
+            assertTaps(s, mapOf(PadButton.CROSS to 12))
+            assertPadMapped(s.getJSONObject("applied_pad_frame"), final, final.buttons)
+            assertPadNeutral(s.getJSONObject("last_pad_frame"))
+        }
+    }
+
+    /**
+     * PAD (c): multipath, every PAD packet on UDP and on TCP, the TCP copy 10 packets (20 ms) behind.
+     * 13 packets (a press, a release, a whole tap and a whole double tap) are never sent on UDP, so
+     * their only copy arrives late on TCP, after newer ones: the counters in the next UDP packet carry
+     * those taps. Taps 10, 11 and 12 come while the replay of the double tap still runs (180 ms), so
+     * the hub appends them to it (12.4 rule 3): 6 replayed taps in all. Every tap shows exactly once;
+     * the late copies are duplicates on the slower path.
+     */
+    @Test
+    fun pad_c_multipathEveryPadPacketOnUdpAndTcp() {
+        val plan = PadPlan(
+            name = "pad_multipath",
+            packets = 1000,
+            stylePs = true,
+            notSentPercent = 0,
+            taps = listOf(
+                Tap(40, 10), Tap(100, 8), Tap(160, 12), Tap(220, 1), Tap(280, 3), Tap(340, 10),
+                Tap(400, 25), Tap(460, 2), Tap(464, 2), Tap(500, 5), Tap(540, 6), Tap(580, 5),
+            ),
+            expectedReplays = 6,
+            preTaps = mapOf(PadButton.CROSS to 11),
+            finalFrom = 800,
+            finalState = { psFinal(it) },
+            useUdp = true,
+            useTcp = true,
+            tcpLag = 10,
+            udpOnlyDrops = intArrayOf(100, 172, 280, 281, 282, 283, 460, 461, 462, 463, 464, 465, 466),
+            seed = 0x50414433L,
+            padOutput = OUTPUT_DS4,
+            padKind = "ds4",
+        )
+        runPadScripted(plan) { s, final ->
+            assertTaps(s, mapOf(PadButton.CROSS to 12))
+            assertPadMapped(s.getJSONObject("applied_pad_frame"), final, final.buttons)
+            assertPadNeutral(s.getJSONObject("last_pad_frame"))
+        }
+    }
+
+    /**
+     * PAD (d): the real LinkEngine in multipath switches wheel to pad to wheel within one epoch
+     * (PROTOCOL.md 12.4 rule 2). Counters that moved on the phone while the other packet type was on
+     * the wire are taken as the baseline at each switch: no spurious pulses or taps. The pad goes
+     * neutral when the wheel comes back, and the wheel is still accepted afterwards.
+     */
+    @Test
+    fun pad_d_modeSwitchWheelToPadToWheelInOneEpoch() {
+        HubProcess("pad_switch").use { hub ->
+            hub.awaitReady()
+            val state = ControllerState()
+            state.setFlag(Slp.FLAG_PAUSED, false)
+            state.setSteer(FINAL_STEER)
+            state.setThrottle(FINAL_THROTTLE)
+            state.setBrake(FINAL_BRAKE)
+            repeat(3) { state.pulse(PulseCounters.SHIFT_UP) } // the hub's baseline: never pressed
+            val pad = PadState()
+            pad.setFlag(Slp.FLAG_PAUSED, false)
+            pad.setFlag(Slp.FLAG_STYLE_PS, true)
+            repeat(5) { tapNow(pad, PadButton.CROSS) }
+            pad.setStick(0, 20000, -20000)
+            val log = StatusLog()
+            val engine = LinkEngine(
+                state,
+                pad,
+                LinkConfig(
+                    key = key, host = AdbTcpTransport.LOOPBACK_V4, udpPort = udpPort, tcpPort = tcpPort,
+                    useWifi = true, useUsb = true, rateHz = 500,
+                ),
+                log,
+                PacketSource.INPUT,
+            )
+            val snap = LinkStats.Snapshot(LinkEngine.TRANSPORT_SLOTS)
+            var switchToPadNs = 0L
+            var switchToWheelNs = 0L
+            engine.start()
+            try {
+                assertTrue(
+                    "both paths turn LIVE on authenticated hub STATUS",
+                    waitFor(6000) {
+                        engine.stats.snapshot(snap, System.nanoTime())
+                        snap.state[LinkEngine.SLOT_WIFI] == LinkStats.TransportState.LIVE &&
+                            snap.state[LinkEngine.SLOT_USB] == LinkStats.TransportState.LIVE
+                    },
+                )
+                repeat(2) {
+                    state.pulse(PulseCounters.SHIFT_UP)
+                    Thread.sleep(120)
+                }
+                Thread.sleep(100)
+                // Two Cross taps on the phone while the link still sends INPUT: never seen by the hub.
+                repeat(2) { tapNow(pad, PadButton.CROSS) }
+
+                switchToPadNs = System.nanoTime()
+                engine.setSource(PacketSource.PAD)
+                assertTrue(
+                    "the hub reports its DualShock 4 in STATUS once PAD arrives",
+                    waitFor(3000) { log.after(switchToPadNs).any { it.output == OUTPUT_DS4 } },
+                )
+                assertEquals(PacketSource.PAD, engine.source)
+                repeat(3) { tapTimed(pad, PadButton.CROSS) }
+                // Shift-ups on the phone while PAD is on the wire: the hub must not replay them later.
+                repeat(4) { state.pulse(PulseCounters.SHIFT_UP) }
+                pad.setButton(PadButton.L1, true)
+                pad.setStick(1, -32767, 32767)
+                pad.setTrigger(1, 65535)
+                Thread.sleep(100)
+
+                // Back to the wheel while L1 is held and the sticks are deflected.
+                switchToWheelNs = System.nanoTime()
+                state.setSteer(-FINAL_STEER)
+                engine.setSource(PacketSource.INPUT)
+                assertTrue(
+                    "STATUS names the wheel output again once INPUT is back",
+                    waitFor(3000) { log.after(switchToWheelNs).any { it.output == 0 } },
+                )
+                assertEquals(PacketSource.INPUT, engine.source)
+                assertTrue("the engine kept 300 ms between switches", switchToWheelNs - switchToPadNs >= LinkEngine.SOURCE_HOLD_NS)
+                repeat(2) {
+                    state.pulse(PulseCounters.SHIFT_UP)
+                    Thread.sleep(120)
+                }
+                Thread.sleep(300)
+            } finally {
+                engine.stop() // final PAUSED packets, INPUT
+            }
+            val built = engine.packetsBuilt
+            val s = hub.awaitStats()
+            val udp = s.getJSONObject("transports").getJSONObject("udp")
+            val tcp = s.getJSONObject("transports").getJSONObject("tcp")
+
+            assertEquals("idle", s.getString("exit_reason"))
+            assertEquals(Le.unsigned(engine.epoch), s.getLong("epoch"))
+            assertEquals("one epoch for the whole run", 1L, s.getLong("epoch_changes"))
+            assertEquals("every packet the engine built was applied once", built, s.getLong("accepted"))
+            assertEquals(0L, s.getLong("missing"))
+            assertEquals(built, s.getLong("last_seq"))
+            assertEquals(built, udp.getLong("first_arrivals") + tcp.getLong("first_arrivals"))
+            assertEquals(
+                "every copy that lost the race is a duplicate",
+                udp.getLong("packets") + tcp.getLong("packets") - built,
+                udp.getLong("duplicates") + tcp.getLong("duplicates"),
+            )
+            assertEquals(0L, udp.getLong("bad_tags") + tcp.getLong("bad_tags") + udp.getLong("malformed") + tcp.getLong("malformed"))
+
+            // 2 shift-ups before the pad and 2 after it; the 4 made while PAD was on the wire are a baseline.
+            assertPresses(s, 4)
+            // 3 Cross taps and one L1 press while PAD was on the wire; the 7 made before are a baseline.
+            assertTaps(s, mapOf(PadButton.CROSS to 3, PadButton.L1 to 1))
+
+            assertEquals("wheel", s.getString("mode"))
+            assertEquals("paused", s.getString("state"))
+            val last = s.getJSONObject("last_input")
+            assertEquals("the wheel is accepted after the switch back", Slp.FLAG_PAUSED or Slp.FLAG_MULTIPATH, last.getInt("flags"))
+            assertEquals(-FINAL_STEER, last.getInt("steer"))
+            assertEquals(3 + 2 + 4 + 2, last.getJSONArray("pulses").getInt(0))
+            val lp = s.getJSONObject("last_pad")
+            assertEquals("the newest PAD carried every Cross tap the phone made", 5 + 2 + 3, lp.getJSONArray("taps").getInt(PadButton.CROSS))
+            assertEquals(Le.unsigned(1 shl PadButton.L1), lp.getLong("buttons"))
+            assertEquals(Slp.FLAG_MULTIPATH or Slp.FLAG_STYLE_PS, lp.getInt("flags"))
+            assertTrue("the newest PAD is older than the newest INPUT", lp.getLong("seq") < last.getLong("seq"))
+            // 12.4 rule 2: the pad went neutral when the wheel came back, and stays plugged in.
+            assertPadNeutral(s.getJSONObject("last_pad_frame"))
+            val applied = s.getJSONObject("applied_pad_frame")
+            assertEquals(Le.unsigned(1 shl PadButton.L1), applied.getLong("buttons"))
+            assertEquals(-32767, applied.getInt("rx"))
+            assertEquals(ds4Axis(20000), applied.getJSONObject("ds4").getInt("left_x"))
+            val po = s.getJSONObject("pad_output")
+            assertEquals("ds4", po.getString("kind"))
+            assertTrue(po.getBoolean("plugged"))
+            assertNeutral(s.getJSONObject("last_frame"), centred = true)
+
+            val outputs = log.outputSequence()
+            assertEquals("STATUS output byte over the run: wheel, pad, wheel", listOf(0, OUTPUT_DS4, 0), outputs)
+
+            val result = JSONObject()
+                .put("run", "pad_switch")
+                .put("packets_built", built)
+                .put("hub_accepted", s.getLong("accepted"))
+                .put("hub_missing", s.getLong("missing"))
+                .put("epoch_changes", s.getLong("epoch_changes"))
+                .put("udp_first", udp.getLong("first_arrivals")).put("udp_duplicates", udp.getLong("duplicates"))
+                .put("tcp_first", tcp.getLong("first_arrivals")).put("tcp_duplicates", tcp.getLong("duplicates"))
+                .put("pulse_presses", s.getJSONArray("pulse_presses"))
+                .put("taps_emitted_by_name", s.getJSONObject("taps_emitted_by_name"))
+                .put("status_outputs", JSONArray(outputs))
+                .put("mode_at_end", s.getString("mode"))
+                .put("pad_output", po)
+            writeResult("pad_switch", result)
+            println("interop pad_switch: $result")
+        }
+    }
+
+    /**
+     * PAD (e1): PAUSED with the real LinkEngine (Wi-Fi UDP). The phone pauses while sticks, a trigger,
+     * a touch finger and L1 are held: the hub shows neutral (12.4 rule 4). While paused the phone repeats
+     * at 50 Hz and the hub stays inside its 200 ms failsafe. After resume a Cross tap goes through; the
+     * run ends with PAUSED packets that carry R1 held, which the hub must not show.
+     */
+    @Test
+    fun pad_e1_pausedPadWithRealLinkEngine() {
+        HubProcess("pad_paused").use { hub ->
+            hub.awaitReady()
+            val state = ControllerState()
+            val pad = PadState()
+            pad.setFlag(Slp.FLAG_STYLE_PS, true)
+            pad.setFlag(Slp.FLAG_MOTION, true)
+            pad.setGyro(160, -320, 48)
+            pad.setAccel(0, 4096, 0)
+            pad.setFlag(Slp.FLAG_PAUSED, false)
+            val log = StatusLog()
+            val engine = LinkEngine(
+                state,
+                pad,
+                LinkConfig(key = key, host = AdbTcpTransport.LOOPBACK_V4, udpPort = udpPort, useWifi = true, useUsb = false, rateHz = 500),
+                log,
+                PacketSource.PAD,
+            )
+            val snap = LinkStats.Snapshot(LinkEngine.TRANSPORT_SLOTS)
+            var builtWhilePaused = 0L
+            var pauseStartNs = 0L
+            var pauseEndNs = 0L
+            engine.start()
+            try {
+                assertTrue(
+                    "the Wi-Fi path turns LIVE and the hub reports its DualShock 4",
+                    waitFor(6000) {
+                        engine.stats.snapshot(snap, System.nanoTime())
+                        snap.state[LinkEngine.SLOT_WIFI] == LinkStats.TransportState.LIVE && log.entries.any { it.output == OUTPUT_DS4 }
+                    },
+                )
+                repeat(2) { tapTimed(pad, PadButton.CROSS) }
+                pad.setButton(PadButton.L1, true)
+                pad.setStick(0, 32767, 32767)
+                pad.setTrigger(0, 40000)
+                pad.setTouch(0, true, 3, 1000, 2000)
+                Thread.sleep(50)
+
+                val builtBefore = engine.packetsBuilt
+                pauseStartNs = System.nanoTime()
+                pad.setFlag(Slp.FLAG_PAUSED, true)
+                Thread.sleep(PAUSE_MS)
+                pauseEndNs = System.nanoTime()
+                builtWhilePaused = engine.packetsBuilt - builtBefore
+                // As the pause menu does: every finger is lifted, then the menu closes.
+                pad.releaseAll()
+                Thread.sleep(40)
+                pad.setFlag(Slp.FLAG_PAUSED, false)
+                tapTimed(pad, PadButton.CROSS)
+                pad.setButton(PadButton.R1, true)
+                pad.setStick(1, -32767, -32767)
+                pad.setTrigger(1, 65535)
+                pad.setTouch(1, true, 4, 65535, 65535)
+                Thread.sleep(50)
+                pad.setFlag(Slp.FLAG_PAUSED, true)
+                Thread.sleep(100)
+            } finally {
+                engine.stop() // final PAUSED packets, PAD
+            }
+            val built = engine.packetsBuilt
+            val s = hub.awaitStats()
+
+            // The phone's paused repeat (50 Hz) against the hub's failsafe (200 ms).
+            val pausedStatus = log.entries.filter { it.rxNs > pauseStartNs + 60_000_000L && it.rxNs < pauseEndNs }
+            val maxPausedHold = pausedStatus.maxOfOrNull { it.holdUs } ?: Int.MAX_VALUE
+            assertTrue("the phone slows to about 50 Hz while paused: $builtWhilePaused packets in $PAUSE_MS ms", builtWhilePaused in 15L..60L)
+            assertTrue("STATUS kept coming while paused: ${pausedStatus.size}", pausedStatus.size >= 8)
+            assertTrue("the hub heard the paused phone every <100 ms (failsafe 200 ms), max hold $maxPausedHold us", maxPausedHold < 100_000)
+
+            assertEquals("idle", s.getString("exit_reason"))
+            assertEquals(Le.unsigned(engine.epoch), s.getLong("epoch"))
+            assertEquals(1L, s.getLong("epoch_changes"))
+            assertEquals(built, s.getLong("accepted"))
+            assertEquals(0L, s.getLong("missing"))
+            assertEquals("controller", s.getString("mode"))
+            assertEquals("ps", s.getString("style"))
+            assertEquals("the phone paused, then went quiet", "paused", s.getString("state"))
+            assertTaps(s, mapOf(PadButton.CROSS to 3, PadButton.L1 to 1, PadButton.R1 to 1))
+            assertPresses(s, 0)
+            val lp = s.getJSONObject("last_pad")
+            assertEquals(Slp.FLAG_PAUSED or Slp.FLAG_MOTION or Slp.FLAG_STYLE_PS, lp.getInt("flags"))
+            assertEquals("the PAUSED packets carried R1 held", Le.unsigned(1 shl PadButton.R1), lp.getLong("buttons"))
+            assertEquals(-32767, lp.getInt("rx"))
+            assertEquals(65535, lp.getInt("r2"))
+            assertTrue(lp.getJSONArray("touch").getJSONObject(1).getBoolean("active"))
+            assertEquals(160, lp.getJSONArray("gyro").getInt(0))
+            // 12.4 rule 4: neutral while PAUSED, both now and at the moment the newest packet was applied.
+            assertPadNeutral(s.getJSONObject("last_pad_frame"))
+            assertPadNeutral(s.getJSONObject("applied_pad_frame"))
+            assertEquals("ds4", s.getJSONObject("pad_output").getString("kind"))
+
+            val result = JSONObject()
+                .put("run", "pad_paused")
+                .put("packets_built", built)
+                .put("hub_accepted", s.getLong("accepted"))
+                .put("hub_missing", s.getLong("missing"))
+                .put("pause_ms", PAUSE_MS)
+                .put("packets_built_while_paused", builtWhilePaused)
+                .put("status_while_paused", pausedStatus.size)
+                .put("max_hold_us_while_paused", maxPausedHold)
+                .put("taps_emitted_by_name", s.getJSONObject("taps_emitted_by_name"))
+                .put("state", s.getString("state"))
+                .put("pad_output", s.getJSONObject("pad_output"))
+            writeResult("pad_paused", result)
+            println("interop pad_paused: $result")
+        }
+    }
+
+    /**
+     * PAD (e2): failsafe. A scripted PlayStation phone holds 12 buttons, both sticks, both triggers, two
+     * touch fingers and motion, loses its last 10 packets (3 Cross taps inside them) and goes quiet. The
+     * hub (forced to Xbox 360 output, 12.4 rule 5) replays the 3 taps, which run on past the failsafe
+     * (12.4 rule 4: schedules finish), and the pad goes neutral with sticks centred.
+     */
+    @Test
+    fun pad_e2_failsafeOnPadWithForcedXbox360Output() {
+        val held = intArrayOf(
+            PadButton.L1, PadButton.R1, PadButton.TRIANGLE, PadButton.CREATE, PadButton.OPTIONS, PadButton.HOME,
+            PadButton.TOUCHPAD, PadButton.UP, PadButton.LEFT, PadButton.RIGHT, PadButton.MUTE, PadButton.SHARE,
+        )
+        val plan = PadPlan(
+            name = "pad_failsafe",
+            packets = 600,
+            stylePs = true,
+            notSentPercent = 10,
+            taps = listOf(Tap(100, 10), Tap(590, 1), Tap(592, 1), Tap(594, 1)),
+            expectedReplays = 3,
+            forcedDrops = (590..599).toList().toIntArray(),
+            finalFrom = 400,
+            finalState = { p -> failsafeFinal(p, held) },
+            useUdp = true,
+            useTcp = false,
+            seed = 0x50414434L,
+            hubArgs = listOf("--pad-output", "x360"),
+            padOutput = OUTPUT_X360,
+            padKind = "x360",
+            padSelected = "x360",
+        )
+        runPadScripted(plan) { s, final ->
+            val expected = HashMap<Int, Int>()
+            for (b in held) expected[b] = 1
+            expected[PadButton.CROSS] = 4
+            assertTaps(s, expected)
+            // Applied with seq 600: the held buttons plus the first replayed Cross tap, already down.
+            assertPadMapped(s.getJSONObject("applied_pad_frame"), final, final.buttons or (1 shl PadButton.CROSS))
+            // After the failsafe and the replays: neutral, sticks centred (unlike the wheel's steering).
+            assertPadNeutral(s.getJSONObject("last_pad_frame"))
+        }
+    }
+
+    /** One tap: pressed in the packet [press], released [hold] packets later. */
+    private class Tap(val press: Int, val hold: Int) {
+        val release: Int get() = press + hold
+    }
+
+    private class PadPlan(
+        val name: String,
+        val packets: Int,
+        val stylePs: Boolean,
+        val notSentPercent: Int = 20,
+        val taps: List<Tap>,
+        val tapButton: Int = PadButton.CROSS,
+        /** Taps the hub must replay (start itself) on [tapButton]; the others pass straight through. */
+        val expectedReplays: Int,
+        /** Taps made on the phone before the first packet: the hub takes them as its baseline. */
+        val preTaps: Map<Int, Int> = emptyMap(),
+        /** At this seq [jumpButton]'s counter goes up by 8 in one packet, released: no press (12.4 rule 3). */
+        val jumpSeq: Int = 0,
+        val jumpButton: Int = PadButton.SQUARE,
+        /** Never sent. */
+        val forcedDrops: IntArray = IntArray(0),
+        /** Always sent (so a planned loss pattern is exactly what the hub sees). */
+        val forcedKeeps: IntArray = IntArray(0),
+        /** From this seq on the state is [finalState] (plus taps). */
+        val finalFrom: Int,
+        val finalState: (PadState) -> Unit,
+        /** (after, old): after sending seq `after`, send packet `old` again (a late duplicate). */
+        val replays: List<Pair<Int, Int>> = emptyList(),
+        /** Before this seq, send a copy with the Cross counter's low bit flipped (the tag must fail). */
+        val badTagSeqs: IntArray = IntArray(0),
+        /** UDP: a malformed datagram here. TCP: a frame of a legal length with bad content. */
+        val malformedSeqs: IntArray = IntArray(0),
+        val splitSeqs: IntArray = IntArray(0),
+        val coalesceSeqs: IntArray = IntArray(0),
+        val useUdp: Boolean,
+        val useTcp: Boolean,
+        val tcpLag: Int = 0,
+        /** Multipath: never sent on UDP; the only copy is the TCP one, [tcpLag] packets behind. */
+        val udpOnlyDrops: IntArray = IntArray(0),
+        val seed: Long,
+        val hubArgs: List<String> = emptyList(),
+        /** STATUS output byte once the pad is plugged in. */
+        val padOutput: Int,
+        /** pad_output.kind and .wanted in the hub stats. */
+        val padKind: String,
+        val padSelected: String = "auto",
+    ) {
+        val multipath: Boolean get() = useUdp && useTcp
+    }
+
+    /** Runs one scripted PAD plan against its own hub, checks what every run shares, then [checks]. */
+    private fun runPadScripted(plan: PadPlan, checks: (JSONObject, PadFrame) -> Unit) {
+        val n = plan.packets
+        assertTrue(plan.taps.all { it.press >= 2 && it.release <= n })
+        val drop = padDropSet(plan)
+        val udpOnly = BooleanArray(n + 1).also { a -> for (q in plan.udpOnlyDrops) a[q] = true }
+        val writer = PadPacketWriter(key)
+        val pad = PadState()
+        val frame = PadFrame()
+        val epoch = LinkEngine.newEpoch()
+        val stats = LinkStats(LinkEngine.TRANSPORT_SLOTS).also { it.reset(epoch) }
+        val tUs = IntArray(n + 1)
+        val sent = BooleanArray(n + 1)
+        val bytes = arrayOfNulls<ByteArray>(n + 1)
+        var replays = 0
+        var badTags = 0
+        var malformed = 0
+
+        // The phone before its first packet: playing, its layout's flags, and some earlier taps.
+        pad.setFlag(Slp.FLAG_PAUSED, false)
+        pad.setFlag(Slp.FLAG_STYLE_PS, plan.stylePs)
+        pad.setFlag(Slp.FLAG_MOTION, plan.stylePs)
+        for ((b, count) in plan.preTaps) repeat(count) { tapNow(pad, b) }
+
+        HubProcess(plan.name, extraArgs = plan.hubArgs).use { hub ->
+            hub.awaitReady()
+            val statuses = ConcurrentLinkedQueue<StatusRecord>()
+            val udp = if (plan.useUdp) openUdp() else null
+            val tcp = if (plan.useTcp) openTcp() else null
+            val udpRx = udp?.let { UdpStatusReceiver(it, key, stats, statuses) }
+            val tcpRx = tcp?.let { TcpStatusReceiver(it, key, stats, statuses) }
+            val tcpOut = tcp?.let { TcpFrameWriter(it) }
+            val lag = ArrayDeque<ByteArray>()
+            val splitAt = intArrayOf(1, 2, 30)
+            var splitIndex = 0
+            fun sendPrimary(p: ByteArray) {
+                if (udp != null) udpSend(udp, p) else tcpOut!!.send(p)
+            }
+            try {
+                val t0 = System.nanoTime() + 5_000_000L
+                for (seq in 1..n) {
+                    sleepUntil(t0 + (seq - 1) * PERIOD_NS)
+                    if (seq < plan.finalFrom) padMove(seq, pad, plan.stylePs) else if (seq == plan.finalFrom) plan.finalState(pad)
+                    for (t in plan.taps) {
+                        if (t.press == seq) pad.setButton(plan.tapButton, true)
+                        if (t.release == seq) pad.setButton(plan.tapButton, false)
+                    }
+                    if (seq == plan.jumpSeq) repeat(8) { tapNow(pad, plan.jumpButton) }
+                    pad.snapshot(frame)
+                    frame.epoch = epoch
+                    frame.seq = seq
+                    frame.tUs = (System.nanoTime() / 1000L).toInt()
+                    frame.rtt100us = stats.rtt100us
+                    if (plan.multipath) frame.flags = frame.flags or Slp.FLAG_MULTIPATH
+                    val packet = writer.write(frame).copyOf()
+                    tUs[seq] = frame.tUs
+
+                    if (seq in plan.badTagSeqs) {
+                        val bad = packet.copyOf()
+                        bad[32] = (bad[32].toInt() xor 1).toByte() // one more or one less Cross tap
+                        sendPrimary(bad)
+                        badTags++
+                    }
+                    if (!drop[seq]) {
+                        sent[seq] = true
+                        bytes[seq] = packet
+                        if (udp != null && !udpOnly[seq]) udpSend(udp, packet)
+                        if (tcpOut != null) {
+                            lag.addLast(packet)
+                            while (lag.size > plan.tcpLag) {
+                                val p = lag.removeFirst()
+                                val split = if (seq in plan.splitSeqs) splitAt[splitIndex++ % splitAt.size] else 0
+                                tcpOut.send(p, split = split, coalesce = seq in plan.coalesceSeqs)
+                            }
+                        }
+                    }
+                    for ((after, old) in plan.replays) {
+                        if (after != seq) continue
+                        sendPrimary(bytes[old]!!)
+                        replays++
+                    }
+                    if (seq in plan.malformedSeqs) {
+                        val bad = if (udp != null) {
+                            when (malformed % 5) {
+                                0 -> packet.copyOf(Slp.PAD_LEN - 1) // 75 bytes
+                                1 -> packet.copyOf(Slp.PAD_LEN + 1) // 77 bytes
+                                2 -> packet.copyOf().also { it[2] = 2 } // version 2
+                                3 -> packet.copyOf().also { it[3] = Slp.TYPE_INPUT } // INPUT type at PAD length
+                                else -> packet.copyOf(Slp.INPUT_LEN) // PAD type at INPUT length
+                            }
+                        } else {
+                            // Legal frame lengths, so the connection stays open (section 8), bad content.
+                            if (malformed % 2 == 0) packet.copyOf().also { it[2] = 2 } else packet.copyOf(Slp.INPUT_LEN)
+                        }
+                        sendPrimary(bad)
+                        malformed++
+                    }
+                }
+                while (lag.isNotEmpty()) {
+                    LockSupport.parkNanos(PERIOD_NS)
+                    tcpOut!!.send(lag.removeFirst())
+                }
+                tcpOut?.flushHeld()
+                val lastSendNs = System.nanoTime()
+
+                if (udpRx != null) {
+                    assertTrue("STATUS for seq $n arrives on UDP", waitFor(2000) { statuses.any { it.slot == SLOT_UDP && it.lastSeq == n } })
+                }
+                if (tcpRx != null) {
+                    assertTrue("STATUS for seq $n arrives on TCP", waitFor(2000) { statuses.any { it.slot == SLOT_TCP && it.lastSeq == n } })
+                }
+                var closedByHub = false
+                if (tcpOut != null && !plan.multipath) {
+                    // Section 8: a frame whose length is neither 52 nor 76 closes the connection.
+                    tcpOut.sendRaw(ByteArray(Framing.HEADER_LEN + Slp.PAD_LEN + 1).also { Le.putU16(it, 0, Slp.PAD_LEN + 1) })
+                    closedByHub = waitFor(2000) { tcpRx!!.closed }
+                    assertTrue("the hub closes a connection that sends a 77 byte frame", closedByHub)
+                }
+
+                val s = hub.awaitStats()
+                udpRx?.stop()
+                tcpRx?.stop()
+                assertEquals("no STATUS failed its header or tag check", 0L, (udpRx?.rejected ?: 0L) + (tcpRx?.rejected ?: 0L))
+                assertEquals("no bad STATUS frame length", false, tcpRx?.badFrame ?: false)
+
+                // What reached the hub first: every sent packet on one path; in multipath the UDP copies.
+                val delivered = BooleanArray(n + 1) { q -> q > 0 && sent[q] && !(plan.multipath && udpOnly[q]) }
+                val deliveredUpTo = IntArray(n + 1)
+                for (q in 1..n) deliveredUpTo[q] = deliveredUpTo[q - 1] + if (delivered[q]) 1 else 0
+                val sentCount = sent.count { it }
+                val summary = checkStatuses(
+                    n, plan.useUdp, plan.useTcp, statuses.toList(), epoch, tUs, sent, deliveredUpTo, lastSendNs,
+                    padOutput = plan.padOutput, exactCounts = !plan.multipath,
+                )
+
+                val final = PadFrame()
+                assertTrue("the last packet decodes with the app's reader", PadPacketReader(key).read(bytes[n]!!, 0, Slp.PAD_LEN, final))
+                checkPadHubStats(plan, s, epoch, sentCount, deliveredUpTo[n], replays, badTags, malformed, final)
+                checks(s, final)
+                assertEquals(
+                    "taps the hub replayed on button ${plan.tapButton}: ${s.getJSONArray("taps_replayed")}",
+                    plan.expectedReplays.toLong(),
+                    s.getJSONArray("taps_replayed").getLong(plan.tapButton),
+                )
+
+                val tr = s.getJSONObject("transports")
+                val result = JSONObject()
+                    .put("run", plan.name)
+                    .put("style", if (plan.stylePs) "ps" else "xbox")
+                    .put("built", n)
+                    .put("sent", sentCount)
+                    .put("not_sent", n - sentCount)
+                    .put("not_sent_on_udp_only", plan.udpOnlyDrops.size)
+                    .put("replays", replays)
+                    .put("bad_tags_sent", badTags)
+                    .put("malformed_sent", malformed)
+                    .put("hub_accepted", s.getLong("accepted"))
+                    .put("hub_missing", s.getLong("missing"))
+                    .put("hub_loss_percent", s.getDouble("loss_percent"))
+                    .put("hub_transports", tr)
+                    .put("state", s.getString("state"))
+                    .put("taps_emitted", s.getJSONArray("taps_emitted"))
+                    .put("taps_emitted_by_name", s.getJSONObject("taps_emitted_by_name"))
+                    .put("taps_replayed", s.getJSONArray("taps_replayed"))
+                    .put("pad_output", s.getJSONObject("pad_output"))
+                    .put("tcp_split_writes", tcpOut?.splits ?: 0)
+                    .put("tcp_coalesced_writes", tcpOut?.coalesced ?: 0)
+                    .put("tcp_closed_on_bad_length", closedByHub)
+                    .put("status", summary)
+                writeResult(plan.name, result)
+                println("interop ${plan.name}: $result")
+            } finally {
+                udpRx?.stop()
+                tcpRx?.stop()
+                try {
+                    udp?.close()
+                } catch (e: Exception) {
+                    // closing
+                }
+                try {
+                    tcp?.close()
+                } catch (e: Exception) {
+                    // closing
+                }
+            }
+        }
+    }
+
+    /** Exactly max(notSentPercent, forced drops) packets never sent: forced ones, then a seeded pick. */
+    private fun padDropSet(plan: PadPlan): BooleanArray {
+        val n = plan.packets
+        val drop = BooleanArray(n + 1)
+        val keep = BooleanArray(n + 1)
+        for (q in plan.forcedKeeps) keep[q] = true
+        for ((_, old) in plan.replays) keep[old] = true
+        keep[1] = true
+        keep[n] = true
+        for (q in plan.forcedDrops) {
+            assertFalse("seq $q is both kept and dropped", keep[q])
+            drop[q] = true
+        }
+        val target = maxOf(n * plan.notSentPercent / 100, plan.forcedDrops.size)
+        var count = plan.forcedDrops.size
+        val candidates = (2 until n).filter { !drop[it] && !keep[it] }.shuffled(java.util.Random(plan.seed))
+        for (q in candidates) {
+            if (count >= target) break
+            drop[q] = true
+            count++
+        }
+        assertEquals(target, drop.count { it })
+        for (q in plan.udpOnlyDrops) assertFalse("udp-only drop $q is not dropped on every path", drop[q])
+        return drop
+    }
+
+    /** The hub's own view of a scripted PAD run, from its stats JSON. */
+    private fun checkPadHubStats(
+        plan: PadPlan,
+        s: JSONObject,
+        epoch: Int,
+        sentCount: Int,
+        deliveredCount: Int,
+        replays: Int,
+        badTags: Int,
+        malformed: Int,
+        final: PadFrame,
+    ) {
+        val n = plan.packets
+        assertEquals("idle", s.getString("exit_reason"))
+        assertEquals("200 ms after the last packet the hub is in failsafe", "failsafe", s.getString("state"))
+        assertEquals(Le.unsigned(epoch), s.getLong("epoch"))
+        assertEquals(1L, s.getLong("epoch_changes"))
+        assertEquals(n.toLong(), s.getLong("last_seq"))
+        val accepted = s.getLong("accepted")
+        val missing = s.getLong("missing")
+        if (plan.multipath) {
+            // A packet sent on TCP only arrives 20 ms late, after newer UDP ones: missing, then a duplicate.
+            assertEquals(n.toLong(), accepted + missing)
+            assertTrue("accepted $accepted in $deliveredCount..$n", accepted in deliveredCount.toLong()..n.toLong())
+        } else {
+            assertEquals("accepted = packets sent", sentCount.toLong(), accepted)
+            assertEquals("missing = packets never sent", (n - sentCount).toLong(), missing)
+        }
+        assertEquals(accepted, s.getLong("total_accepted"))
+        assertEquals(missing, s.getLong("total_missing"))
+        assertPresses(s, 0)
+        assertEquals("no INPUT was ever applied", 0L, s.getJSONObject("last_input").getLong("seq"))
+        assertEquals("controller", s.getString("mode"))
+        assertEquals(if (plan.stylePs) "ps" else "xbox", s.getString("style"))
+        val po = s.getJSONObject("pad_output")
+        assertEquals("pad output setting", plan.padSelected, po.getString("selected"))
+        assertEquals("pad kind wanted", plan.padKind, po.getString("wanted"))
+        assertEquals("pad kind plugged in", plan.padKind, po.getString("kind"))
+        assertTrue("the pad is plugged in", po.getBoolean("plugged"))
+        assertEquals("ready", po.getString("state"))
+
+        val udp = s.getJSONObject("transports").getJSONObject("udp")
+        val tcp = s.getJSONObject("transports").getJSONObject("tcp")
+        if (plan.multipath) {
+            assertEquals((sentCount - plan.udpOnlyDrops.size).toLong(), udp.getLong("packets"))
+            assertEquals(sentCount.toLong(), tcp.getLong("packets"))
+            assertEquals("each applied seq has one first arrival", accepted, udp.getLong("first_arrivals") + tcp.getLong("first_arrivals"))
+            assertEquals(
+                "every other copy is a duplicate",
+                udp.getLong("packets") + tcp.getLong("packets") - accepted,
+                udp.getLong("duplicates") + tcp.getLong("duplicates"),
+            )
+            assertTrue(
+                "duplicates are counted on the slower path (TCP, 20 ms behind): ${tcp.getLong("duplicates")} of ${tcp.getLong("packets")}",
+                tcp.getLong("duplicates") >= tcp.getLong("packets") * 99L / 100,
+            )
+            assertEquals(0L, udp.getLong("bad_tags") + tcp.getLong("bad_tags") + udp.getLong("malformed") + tcp.getLong("malformed"))
+        } else {
+            val used = if (plan.useUdp) udp else tcp
+            val idle = if (plan.useUdp) tcp else udp
+            assertEquals(0L, idle.getLong("packets"))
+            assertEquals((sentCount + replays).toLong(), used.getLong("packets"))
+            assertEquals(sentCount.toLong(), used.getLong("first_arrivals"))
+            assertEquals("the late replays are the duplicates", replays.toLong(), used.getLong("duplicates"))
+            assertEquals("tampered packets fail the tag", badTags.toLong(), used.getLong("bad_tags"))
+            val expectedMalformed = malformed.toLong() + if (plan.useTcp) 1 else 0 // TCP: the 77 byte frame
+            assertEquals(expectedMalformed, used.getLong("malformed"))
+            assertEquals(0L, used.getLong("foreign_epoch"))
+        }
+
+        // The last PAD exactly as the hub decoded it from the wire, every field and all 18 counters.
+        val lp = s.getJSONObject("last_pad")
+        assertEquals(Le.unsigned(final.epoch), lp.getLong("epoch"))
+        assertEquals(n.toLong(), lp.getLong("seq"))
+        assertEquals(Le.unsigned(final.tUs), lp.getLong("t_us"))
+        assertEquals(final.lx, lp.getInt("lx"))
+        assertEquals(final.ly, lp.getInt("ly"))
+        assertEquals(final.rx, lp.getInt("rx"))
+        assertEquals(final.ry, lp.getInt("ry"))
+        assertEquals(final.l2, lp.getInt("l2"))
+        assertEquals(final.r2, lp.getInt("r2"))
+        assertEquals(Le.unsigned(final.buttons), lp.getLong("buttons"))
+        val taps = lp.getJSONArray("taps")
+        for (b in 0 until Slp.PAD_BUTTONS) assertEquals("tap counter of button $b", final.taps[b].toInt(), taps.getInt(b))
+        assertEquals(final.flags, lp.getInt("flags"))
+        assertEquals(final.rtt100us, lp.getInt("rtt_100us"))
+        val touch = lp.getJSONArray("touch")
+        assertTouch(touch.getJSONObject(0), final.touch0X, final.touch0Y, final.touch0Id)
+        assertTouch(touch.getJSONObject(1), final.touch1X, final.touch1Y, final.touch1Id)
+        assertVector(lp.getJSONArray("gyro"), final.gyroX, final.gyroY, final.gyroZ)
+        assertVector(lp.getJSONArray("accel"), final.accelX, final.accelY, final.accelZ)
+    }
+
+    private fun assertTouch(t: JSONObject, x: Int, y: Int, idByte: Int) {
+        assertEquals("touch x", x, t.getInt("x"))
+        assertEquals("touch y", y, t.getInt("y"))
+        assertEquals("touch tracking id", idByte and 0x7F, t.getInt("id"))
+        assertEquals("touch active", idByte and 0x80 != 0, t.getBoolean("active"))
+    }
+
+    private fun assertVector(a: JSONArray, x: Int, y: Int, z: Int) {
+        assertEquals(3, a.length())
+        assertEquals(x, a.getInt(0))
+        assertEquals(y, a.getInt(1))
+        assertEquals(z, a.getInt(2))
+    }
+
+    /** Presses the pad showed per canonical button (bit order of 12.2): exactly [expected], 0 elsewhere. */
+    private fun assertTaps(s: JSONObject, expected: Map<Int, Int>) {
+        val emitted = s.getJSONArray("taps_emitted")
+        val pending = s.getJSONArray("taps_pending")
+        assertEquals(Slp.PAD_BUTTONS, emitted.length())
+        for (b in 0 until Slp.PAD_BUTTONS) {
+            val want = expected[b] ?: 0
+            assertEquals("presses on button $b (${PadButton.bothNames(b)}), no lost or doubled press: $emitted", want.toLong(), emitted.getLong(b))
+            assertEquals("no tap left queued: $pending", 0, pending.getInt(b))
+        }
+    }
+
+    /**
+     * A pad frame from the hub's stats against PROTOCOL.md 12.5, computed from the phone's own frame
+     * [f] and the button output [out] (held bits plus any replayed tap that is down).
+     */
+    private fun assertPadMapped(frame: JSONObject, f: PadFrame, out: Int) {
+        val motion = f.flags and Slp.FLAG_MOTION != 0
+        assertEquals("lx", f.lx, frame.getInt("lx"))
+        assertEquals("ly", f.ly, frame.getInt("ly"))
+        assertEquals("rx", f.rx, frame.getInt("rx"))
+        assertEquals("ry", f.ry, frame.getInt("ry"))
+        assertEquals("l2", f.l2, frame.getInt("l2"))
+        assertEquals("r2", f.r2, frame.getInt("r2"))
+        assertEquals("button output", Le.unsigned(out), frame.getLong("buttons"))
+        val touch = frame.getJSONArray("touch")
+        assertTouch(touch.getJSONObject(0), f.touch0X, f.touch0Y, f.touch0Id)
+        assertTouch(touch.getJSONObject(1), f.touch1X, f.touch1Y, f.touch1Id)
+        assertEquals("motion", motion, frame.getBoolean("motion"))
+        if (motion) {
+            assertVector(frame.getJSONArray("gyro"), f.gyroX, f.gyroY, f.gyroZ)
+            assertVector(frame.getJSONArray("accel"), f.accelX, f.accelY, f.accelZ)
+        } else {
+            assertVector(frame.getJSONArray("gyro"), 0, 0, 0)
+            assertVector(frame.getJSONArray("accel"), 0, 0, 0)
+        }
+
+        val x = frame.getJSONObject("x360")
+        assertEquals("X360 left thumb X", f.lx, x.getInt("left_thumb_x"))
+        assertEquals("X360 left thumb Y (+y up)", f.ly, x.getInt("left_thumb_y"))
+        assertEquals("X360 right thumb X", f.rx, x.getInt("right_thumb_x"))
+        assertEquals("X360 right thumb Y", f.ry, x.getInt("right_thumb_y"))
+        assertEquals("X360 left trigger", f.l2 ushr 8, x.getInt("left_trigger"))
+        assertEquals("X360 right trigger", f.r2 ushr 8, x.getInt("right_trigger"))
+        assertEquals("X360 buttons", x360Buttons(out), x.getInt("buttons"))
+
+        val d = frame.getJSONObject("ds4")
+        assertEquals("DS4 left X", ds4Axis(f.lx), d.getInt("left_x"))
+        assertEquals("DS4 left Y (0 at the top)", ds4AxisY(f.ly), d.getInt("left_y"))
+        assertEquals("DS4 right X", ds4Axis(f.rx), d.getInt("right_x"))
+        assertEquals("DS4 right Y", ds4AxisY(f.ry), d.getInt("right_y"))
+        assertEquals("DS4 L2", f.l2 ushr 8, d.getInt("l2"))
+        assertEquals("DS4 R2", f.r2 ushr 8, d.getInt("r2"))
+        assertEquals("DS4 buttons word (hat, face, shoulders, digital L2 / R2)", ds4Buttons(out, f.l2, f.r2), d.getInt("buttons"))
+        assertEquals("DS4 hat", ds4Hat(out), d.getInt("hat"))
+        assertEquals("DS4 special (PS, touchpad click)", ds4Special(out), d.getInt("special"))
+        val dt = d.getJSONArray("touch")
+        assertDs4Touch(dt.getJSONObject(0), f.touch0X, f.touch0Y, f.touch0Id)
+        assertDs4Touch(dt.getJSONObject(1), f.touch1X, f.touch1Y, f.touch1Id)
+        // 12.5 leaves the DualShock 4 motion units to the hub; the direction of every axis must survive.
+        val g = d.getJSONArray("gyro")
+        val a = d.getJSONArray("accel")
+        val src = if (motion) intArrayOf(f.gyroX, f.gyroY, f.gyroZ, f.accelX, f.accelY, f.accelZ) else IntArray(6)
+        for (i in 0..2) {
+            assertEquals("DS4 gyro $i keeps its sign", src[i].sign, g.getInt(i).sign)
+            assertEquals("DS4 accel $i keeps its sign", src[3 + i].sign, a.getInt(i).sign)
+        }
+    }
+
+    private fun assertDs4Touch(t: JSONObject, x: Int, y: Int, idByte: Int) {
+        assertEquals("DS4 touch x (0..1919)", x * 1919 / 65535, t.getInt("x"))
+        assertEquals("DS4 touch y (0..942)", y * 942 / 65535, t.getInt("y"))
+        // The DualShock 4's finger byte is active low: bit 7 set while the finger is up.
+        assertEquals("DS4 touch id byte", (idByte and 0x7F) or (if (idByte and 0x80 != 0) 0 else 0x80), t.getInt("id_byte"))
+    }
+
+    /** 12.4 rule 4 and rule 2: sticks centred, triggers 0, buttons up, fingers inactive, motion zero. */
+    private fun assertPadNeutral(frame: JSONObject) {
+        for (k in listOf("lx", "ly", "rx", "ry", "l2", "r2")) assertEquals("$k at rest", 0, frame.getInt(k))
+        assertEquals("no button down", 0L, frame.getLong("buttons"))
+        val touch = frame.getJSONArray("touch")
+        for (i in 0..1) assertFalse("finger $i inactive", touch.getJSONObject(i).getBoolean("active"))
+        assertFalse("motion off", frame.getBoolean("motion"))
+        assertVector(frame.getJSONArray("gyro"), 0, 0, 0)
+        assertVector(frame.getJSONArray("accel"), 0, 0, 0)
+        val x = frame.getJSONObject("x360")
+        for (k in listOf("left_thumb_x", "left_thumb_y", "right_thumb_x", "right_thumb_y", "left_trigger", "right_trigger", "buttons")) {
+            assertEquals("X360 $k at rest", 0, x.getInt(k))
+        }
+        val d = frame.getJSONObject("ds4")
+        for (k in listOf("left_x", "left_y", "right_x", "right_y")) assertEquals("DS4 $k centred", ds4Axis(0), d.getInt(k))
+        assertEquals(0, d.getInt("l2"))
+        assertEquals(0, d.getInt("r2"))
+        assertEquals("DS4 buttons: hat released, nothing else", DS4_HAT_NONE, d.getInt("buttons"))
+        assertEquals(DS4_HAT_NONE, d.getInt("hat"))
+        assertEquals(0, d.getInt("special"))
+        val dt = d.getJSONArray("touch")
+        for (i in 0..1) assertTrue("DS4 finger $i up (bit 7)", dt.getJSONObject(i).getInt("id_byte") and 0x80 != 0)
+        assertVector(d.getJSONArray("gyro"), 0, 0, 0)
+        assertVector(d.getJSONArray("accel"), 0, 0, 0)
+    }
+
+    /** STATUS as the real LinkEngine hands it on (StatusSink), kept for checks after the run. */
+    private class StatusLog : StatusSink {
+        class Entry(val slot: Int, val rxNs: Long, val output: Int, val holdUs: Int, val lastSeq: Int)
+
+        val entries = ConcurrentLinkedQueue<Entry>()
+
+        override fun onStatus(slot: Int, status: StatusPacket, rxNs: Long) {
+            entries.add(Entry(slot, rxNs, status.output, status.holdUs, status.lastSeq))
+        }
+
+        fun after(ns: Long): List<Entry> = entries.filter { it.rxNs > ns }
+
+        /** The output byte over time, repeats collapsed. */
+        fun outputSequence(): List<Int> {
+            val out = ArrayList<Int>()
+            for (e in entries.sortedBy { it.rxNs }) if (out.isEmpty() || out.last() != e.output) out += e.output
+            return out
+        }
+    }
+
     // ------------------------------------------------------------------ transports ---
 
     private fun openUdp(): DatagramSocket = DatagramSocket().apply {
@@ -809,10 +1771,10 @@ class InteropTest {
         socket.send(DatagramPacket(packet, packet.size))
     }
 
-    /** Frames INPUT with the app's [Framing]; can split one frame over two writes or join two in one. */
+    /** Frames INPUT or PAD with the app's [Framing]; can split one frame over two writes or join two in one. */
     private class TcpFrameWriter(socket: Socket) {
         private val out = socket.getOutputStream()
-        private val buf = ByteArray(Framing.HEADER_LEN + Slp.INPUT_LEN)
+        private val buf = ByteArray(Framing.HEADER_LEN + Slp.MAX_PACKET_LEN)
         private var held: ByteArray? = null
         var splits = 0
         var coalesced = 0
@@ -963,7 +1925,11 @@ class InteropTest {
     // ------------------------------------------------------------------- the hub ---
 
     /** One `slipstream hub` process for one run, on the interop ports, stopping itself when idle. */
-    private inner class HubProcess(private val run: String, beaconPort: Int? = null) : AutoCloseable {
+    private inner class HubProcess(
+        private val run: String,
+        beaconPort: Int? = null,
+        extraArgs: List<String> = emptyList(),
+    ) : AutoCloseable {
         private val statsFile = File(Env.out, "hub-$run.json").also { it.delete() }
         private val logFile = File(Env.out, "hub-$run.log")
         private val lines = CopyOnWriteArrayList<String>()
@@ -987,6 +1953,7 @@ class InteropTest {
                 "--stats-json", statsFile.absolutePath,
             )
             cmd += if (beaconPort != null) listOf("--beacon-port", beaconPort.toString()) else listOf("--no-beacon")
+            cmd += extraArgs
             process = ProcessBuilder(cmd).redirectErrorStream(true).start()
             process.outputStream.close()
             Thread({ pump() }, "interop-hub-$run").apply {
@@ -1069,6 +2036,167 @@ class InteropTest {
 
         fun vjoySteer(steer: Int): Long = 1 + ((steer + 32767).toLong() * 32767 + 32767) / 65534
         fun vjoyPedal(p: Int): Long = 1 + (p.toLong() * 32767 + 32767) / 65535
+
+        // ------------------------------------------------------- controller mode ---
+
+        /** STATUS output byte of the pad kinds (the hub sends 3 for the DualShock 4, see TESTING.md). */
+        private const val OUTPUT_X360 = Slp.OUTPUT_X360
+        private const val OUTPUT_DS4 = 3
+        private const val PAUSE_MS = 600L
+        private const val DS4_HAT_NONE = 8
+
+        /**
+         * 12 Cross taps over 2000 packets, each press and each release in its own packet. With
+         * [LOSSY_TAP_DROPS] and [LOSSY_TAP_KEEPS]: tap 2 loses its press and every packet that held it,
+         * so the release packet's counter replays it; tap 3 loses its release; tap 4 is one packet
+         * long; tap 5 is lost whole, release included; tap 6 loses its press but the next packet still
+         * holds it (it shows once, no replay); taps 8 and 9 are a double tap lost whole (+2 in one
+         * packet); tap 11 loses its release and the gap after it, so tap 12 is pressed while tap 11
+         * still shows (a gap first) and released while that gap runs, so it is replayed after it.
+         * That makes [LOSSY_REPLAYS_EXPECTED] replayed taps: 2, 5, 8, 9 and 12.
+         */
+        private val LOSSY_TAPS = listOf(
+            Tap(100, 10), Tap(220, 8), Tap(340, 12), Tap(460, 1), Tap(580, 3), Tap(700, 10),
+            Tap(820, 25), Tap(940, 2), Tap(944, 2), Tap(1060, 5), Tap(1180, 6), Tap(1190, 5),
+        )
+        private val LOSSY_TAP_DROPS = intArrayOf(
+            220, 221, 222, 223, 224, 225, 226, 227, 352, 580, 581, 582, 583, 700,
+            940, 941, 942, 943, 944, 945, 946, 1186, 1187, 1188, 1189,
+        )
+        private const val LOSSY_REPLAYS_EXPECTED = 5
+        private val LOSSY_TAP_KEEPS = intArrayOf(100, 228, 340, 353, 460, 461, 579, 584, 701, 939, 947, 1180, 1190, 1195)
+
+        /** Late copies of press packets (and two others): the hub must drop them, not press again. */
+        private val LATE_COPIES = listOf(115 to 100, 470 to 460, 715 to 701, 1000 to 990, 1500 to 1490)
+
+        /** DualShock 4 stick byte (12.5): ((v + 32767) * 255 + 32767) div 65534. */
+        fun ds4Axis(v: Int): Int {
+            val s = maxOf(v, -32767).toLong()
+            return (((s + 32767) * 255 + 32767) / 65534).toInt()
+        }
+
+        /** DualShock 4 Y is 0 at the top: the formula on -v (12.5). */
+        fun ds4AxisY(v: Int): Int = ds4Axis(-maxOf(v, -32767))
+
+        private fun held(out: Int, bit: Int): Boolean = out and (1 shl bit) != 0
+
+        /** The hat: 0 north, clockwise to 7 north-west, 8 released; opposite directions cancel (12.5). */
+        fun ds4Hat(out: Int): Int {
+            val north = held(out, PadButton.UP) && !held(out, PadButton.DOWN)
+            val south = held(out, PadButton.DOWN) && !held(out, PadButton.UP)
+            val east = held(out, PadButton.RIGHT) && !held(out, PadButton.LEFT)
+            val west = held(out, PadButton.LEFT) && !held(out, PadButton.RIGHT)
+            return when {
+                north && east -> 1
+                south && east -> 3
+                south && west -> 5
+                north && west -> 7
+                north -> 0
+                east -> 2
+                south -> 4
+                west -> 6
+                else -> DS4_HAT_NONE
+            }
+        }
+
+        /**
+         * The DualShock 4 report's button word (bytes 5 and 6 of the USB report): hat in bits 0..3, then
+         * Square, Cross, Circle, Triangle, L1, R1, L2, R2, Share, Options, L3, R3. Canonical bits 0..9 go
+         * to Cross, Circle, Square, Triangle, L1, R1, L3, R3, Share (Create), Options; the digital L2 / R2
+         * bits are set while the trigger's byte is 8 or more.
+         */
+        fun ds4Buttons(out: Int, l2: Int, r2: Int): Int {
+            val table = intArrayOf(0x0020, 0x0040, 0x0010, 0x0080, 0x0100, 0x0200, 0x4000, 0x8000, 0x1000, 0x2000)
+            var w = ds4Hat(out)
+            for (bit in table.indices) if (held(out, bit)) w = w or table[bit]
+            if ((l2 ushr 8) >= 8) w = w or 0x0400
+            if ((r2 ushr 8) >= 8) w = w or 0x0800
+            return w
+        }
+
+        /** Report byte 7: bit 0 PS (canonical 10), bit 1 touchpad click (canonical 11). Mute is not sent. */
+        fun ds4Special(out: Int): Int =
+            (if (held(out, PadButton.HOME)) 0x01 else 0) or (if (held(out, PadButton.TOUCHPAD)) 0x02 else 0)
+
+        /**
+         * XInput button word: canonical 0..10 to A, B, X, Y, LB, RB, LS, RS, Back, Start, Guide and 12..15 to
+         * the D-pad (12.5). Bits 11, 16 and 17 have no Xbox 360 equivalent.
+         */
+        fun x360Buttons(out: Int): Int {
+            val table = intArrayOf(
+                0x1000, 0x2000, 0x4000, 0x8000, 0x0100, 0x0200, 0x0040, 0x0080, 0x0020, 0x0010, 0x0400, 0,
+                0x0001, 0x0002, 0x0004, 0x0008,
+            )
+            var w = 0
+            for (bit in table.indices) if (held(out, bit)) w = w or table[bit]
+            return w
+        }
+
+        /** Press and release at once (between two packets): one tap counter step, never held on the wire. */
+        private fun tapNow(pad: PadState, bit: Int) {
+            pad.setButton(bit, true)
+            pad.setButton(bit, false)
+        }
+
+        /** A real-time tap for the LinkEngine runs: 30 ms down, then 120 ms up. */
+        private fun tapTimed(pad: PadState, bit: Int) {
+            pad.setButton(bit, true)
+            Thread.sleep(30)
+            pad.setButton(bit, false)
+            Thread.sleep(120)
+        }
+
+        /** The moving part of a scripted PAD run: sticks, triggers, fingers and motion change every packet. */
+        private fun padMove(seq: Int, pad: PadState, stylePs: Boolean) {
+            val a = seq * 0.0125
+            pad.setStick(0, (sin(a) * 32767.0).roundToInt(), (cos(a) * 32767.0).roundToInt())
+            pad.setStick(1, (sin(a * 1.7) * 30000.0).roundToInt(), (-cos(a * 0.6) * 32767.0).roundToInt())
+            pad.setTrigger(0, (seq * 331) and 0xFFFF)
+            pad.setTrigger(1, (seq * 997 + 12345) and 0xFFFF)
+            if (!stylePs) return
+            pad.setTouch(0, seq % 300 < 150, (seq / 300) and 0x7F, (seq * 211) and 0xFFFF, (seq * 97) and 0xFFFF)
+            pad.setTouch(1, seq % 500 < 100, (40 + seq / 500) and 0x7F, (seq * 57) and 0xFFFF, (seq * 389) and 0xFFFF)
+            pad.setGyro((seq * 37) % 4000 - 2000, (seq * 53) % 6000 - 3000, (sin(a) * 30000.0).roundToInt())
+            pad.setAccel((seq * 7) % 8192 - 4096, 4096, -((seq * 11) % 4096))
+        }
+
+        /**
+         * Final PlayStation state of runs pad_a and pad_c: a stick past full left (the phone clamps it to
+         * -32767), L2 one step below the digital threshold and R2 on it, one finger down, one lifted.
+         */
+        private fun psFinal(pad: PadState) {
+            pad.setStick(0, -40000, 12345)
+            pad.setStick(1, 32767, -20000)
+            pad.setTrigger(0, 2047)
+            pad.setTrigger(1, 2048)
+            pad.setTouch(0, true, 5, 65535, 0)
+            pad.setTouch(1, false, 6, 1234, 54321)
+            pad.setGyro(-100, 200, 32767)
+            pad.setAccel(4096, -8192, 20000)
+        }
+
+        /** Final Xbox state of run pad_b: no touchpad, no motion. */
+        private fun xboxFinal(pad: PadState) {
+            pad.setStick(0, 12000, -32767)
+            pad.setStick(1, -1, 32767)
+            pad.setTrigger(0, 65535)
+            pad.setTrigger(1, 255)
+            pad.setTouch(0, false, 0, 0, 0)
+            pad.setTouch(1, false, 0, 0, 0)
+        }
+
+        /** Final state of run pad_failsafe: [held] buttons down (D-pad up with left and right: the hat says north). */
+        private fun failsafeFinal(pad: PadState, held: IntArray) {
+            for (b in held) pad.setButton(b, true)
+            pad.setStick(0, 32767, -32767)
+            pad.setStick(1, 0, 1)
+            pad.setTrigger(0, 65535)
+            pad.setTrigger(1, 0)
+            pad.setTouch(0, true, 127, 32768, 32768)
+            pad.setTouch(1, true, 0, 0, 65535)
+            pad.setGyro(16, -16, 0)
+            pad.setAccel(0, 4096, -4096)
+        }
 
         private fun record(slot: Int, st: StatusPacket, rxNs: Long): StatusRecord {
             val nowUs = (rxNs / 1000L).toInt()

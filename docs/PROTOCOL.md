@@ -105,7 +105,7 @@ second (each UDP source address, each TCP connection).
 | 24 | 4 | u32 | missing | Seq numbers skipped in this epoch (never arrived on any transport before a newer one) |
 | 28 | 2 | u16 | rumble_strong | Force feedback / rumble from the game, 0..65535 |
 | 30 | 2 | u16 | rumble_weak | same |
-| 32 | 1 | u8 | output | low 7 bits: 0 none, 1 vJoy, 2 Xbox 360 (ViGEm). bit7 = output device error |
+| 32 | 1 | u8 | output | low 7 bits: 0 none, 1 vJoy, 2 Xbox 360 (ViGEm), 3 DualShock 4 (ViGEm, controller mode). bit7 = output device error |
 | 33 | 1 | u8 | hub_flags | reserved, 0 |
 | 34 | 2 | u16 | reserved | 0 |
 | 36 | 8 | | tag | `tag(bytes[0..36))` |
@@ -221,7 +221,8 @@ Bluetooth HID mode (phone is the device, no hub): report ID 1, five 16-bit axes
 Controller mode turns the phone into a PlayStation-style or Xbox-style gamepad. It uses the same
 link, epoch, sequence space, transports, multipath, STATUS replies and failsafe as the wheel. The
 phone sends PAD packets instead of INPUT packets while it is in controller mode; one link never
-mixes the two within 300 ms. A 0.1.0 hub drops type 4 as an unknown type.
+mixes the two within 300 ms, counted from the first packet of the new type on the wire. A 0.1.0
+hub drops type 4 as an unknown type.
 
 ### 12.1 Layout
 
@@ -254,7 +255,8 @@ mixes the two within 300 ms. A 0.1.0 hub drops type 4 as an unknown type.
 
 Motion axes are in the controller frame, phone held in landscape with the screen facing the
 player: +x to the player's right, +y up, +z out of the screen toward the player. Rotation signs
-follow the right-hand rule on those axes.
+follow the right-hand rule on those axes. Accel is specific force, as an accelerometer reads it:
+at rest the axis pointing up reads +1 g (+4096).
 
 ### 12.2 Canonical buttons
 
@@ -287,6 +289,9 @@ L2 / R2 (LT / RT) are analog only; there is no canonical button for them.
   first sets its held bit. The phone sends a packet immediately on every press and release
   (send-on-change, 1 ms minimum spacing), so a tap is at least two packets.
 - Sticks are clamped to -32767..32767 (never -32768) after the deadzone and response curve.
+- While `PAUSED` the phone registers no presses, so a `PAUSED` PAD packet never carries a new tap
+  increment. A `PAUSED` PAD link may repeat at 50 Hz instead of the normal idle rate (still well
+  inside the 200 ms failsafe); any change is sent at once.
 
 ### 12.4 Hub rules (normative, in addition to section 9)
 
@@ -301,11 +306,15 @@ L2 / R2 (LT / RT) are analog only; there is no canonical button for them.
    is down at this moment. The schedule is: if `gap_first`, release for `gap_ms`; then `replay`
    taps, each `tap_ms` down then `gap_ms` up; then the button follows its held bit again. While a
    schedule runs it drives the button; if one is already running, new replay taps are appended to
-   it and `gap_first` is ignored. At most 15 queued taps per button. Defaults: `tap_ms` = 50,
+   it and `gap_first` is ignored. A real press whose held span begins and ends while a schedule
+runs is not lost: it is appended to the schedule as one tap. On epoch adoption, a press still
+hidden behind an old-epoch schedule is appended once as a tap. At most 15 queued taps per button. Defaults: `tap_ms` = 50,
    `gap_ms` = 40. Without loss this schedules nothing, so presses and releases pass through with
    zero added delay.
 4. **Failsafe and PAUSED** (rule 6 for PAD): sticks centre, triggers 0, held buttons released,
    touch fingers inactive, motion zero; running schedules finish.
+   Known limit: after a long Wi-Fi stall, a press and its release can arrive back to back; the
+   game sees them only if it polls in between. Multipath (USB plus Wi-Fi) avoids stalls.
 5. **Output device.** `STYLE_PS` selects a DualShock 4 (ViGEmBus); otherwise an Xbox 360
    (ViGEmBus). A hub setting may force either. vJoy is not used in controller mode.
 
@@ -320,6 +329,8 @@ DualShock 4: stick X bytes `((v + 32767) * 255 + 32767) div 65534`; stick Y byte
 `(p >> 8) >= 8`; bits 0..11 to Cross, Circle, Square, Triangle, L1, R1, L3, R3, Share (Create),
 Options, PS, Touchpad; the D-pad bits become the hat (8 directions, opposite directions cancel).
 Touch fingers and motion go into the extended DualShock 4 report when the ViGEm client supports
-it: touch X to 0..1919 as `x * 1919 div 65535`, touch Y to 0..942 as `y * 942 div 65535`; gyro
-and accel are rescaled to the DualShock 4's own units by the hub. Bit 16 (Mute) is not sent.
+it: touch X to 0..1919 as `x * 1919 div 65535`, touch Y to 0..942 as `y * 942 div 65535`; an
+inactive finger keeps its last position with the active bit cleared. Gyro goes out at 16 counts
+per degree per second (the wire value unchanged) and accel at 8192 counts per g (the wire value
+doubled, saturating), on the same axes as 12.1. Bits 16 (Mute) and 17 (Share) are not sent.
 Rumble from the game returns to the phone through STATUS as in section 6.

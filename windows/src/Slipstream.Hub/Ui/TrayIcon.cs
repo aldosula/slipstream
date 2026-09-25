@@ -6,12 +6,13 @@ using Forms = System.Windows.Forms;
 
 namespace Slipstream.Hub.Ui;
 
-/// <summary>Notification area icon: Show, Output (vJoy, Xbox 360, None), Quit. Dark menu.</summary>
+/// <summary>Notification area icon: Show, Wheel output (vJoy, Xbox 360, None), Controller output (Auto, Xbox 360, DualShock 4), Quit. Dark menu.</summary>
 internal sealed class TrayIcon : IDisposable
 {
     private readonly Forms.NotifyIcon _icon;
     private readonly Forms.ContextMenuStrip _menu;
     private readonly Forms.ToolStripMenuItem _vjoy, _x360, _none;
+    private readonly Forms.ToolStripMenuItem _padAuto, _padX360, _padDs4;
     private readonly HubHost _host;
 
     public TrayIcon(HubHost host, Action show, Action quit)
@@ -21,7 +22,7 @@ internal sealed class TrayIcon : IDisposable
         var showItem = new Forms.ToolStripMenuItem("Show Slipstream Hub") { Font = new Drawing.Font(Forms.SystemInformation.MenuFont, Drawing.FontStyle.Bold) };
         showItem.Click += (_, _) => show();
 
-        var output = new Forms.ToolStripMenuItem("Output");
+        var output = new Forms.ToolStripMenuItem("Wheel output");
         _vjoy = new Forms.ToolStripMenuItem("vJoy");
         _x360 = new Forms.ToolStripMenuItem("Xbox 360 (ViGEm)");
         _none = new Forms.ToolStripMenuItem("None");
@@ -36,10 +37,25 @@ internal sealed class TrayIcon : IDisposable
             dd.ShowCheckMargin = true;
         }
 
+        var padOutput = new Forms.ToolStripMenuItem("Controller output");
+        _padAuto = new Forms.ToolStripMenuItem("Auto (by the phone's layout)");
+        _padX360 = new Forms.ToolStripMenuItem("Xbox 360 (ViGEm)");
+        _padDs4 = new Forms.ToolStripMenuItem("DualShock 4 (ViGEm)");
+        _padAuto.Click += (_, _) => host.SelectPadOutput(PadOutputSelection.Auto);
+        _padX360.Click += (_, _) => host.SelectPadOutput(PadOutputSelection.Xbox360);
+        _padDs4.Click += (_, _) => host.SelectPadOutput(PadOutputSelection.DualShock4);
+        padOutput.DropDownItems.AddRange(new Forms.ToolStripItem[] { _padAuto, _padX360, _padDs4 });
+        if (padOutput.DropDown is Forms.ToolStripDropDownMenu pd)
+        {
+            pd.Renderer = new DarkMenuRenderer();
+            pd.ShowImageMargin = false;
+            pd.ShowCheckMargin = true;
+        }
+
         var quitItem = new Forms.ToolStripMenuItem("Quit");
         quitItem.Click += (_, _) => quit();
 
-        _menu.Items.AddRange(new Forms.ToolStripItem[] { showItem, output, new Forms.ToolStripSeparator(), quitItem });
+        _menu.Items.AddRange(new Forms.ToolStripItem[] { showItem, output, padOutput, new Forms.ToolStripSeparator(), quitItem });
         _menu.Opening += (_, _) => UpdateChecks();
 
         _icon = new Forms.NotifyIcon
@@ -58,6 +74,10 @@ internal sealed class TrayIcon : IDisposable
         _vjoy.Checked = k == OutputKind.VJoy;
         _x360.Checked = k == OutputKind.Xbox360;
         _none.Checked = k == OutputKind.None;
+        PadOutputSelection p = _host.Config.PadOutputSelection;
+        _padAuto.Checked = p == PadOutputSelection.Auto;
+        _padX360.Checked = p == PadOutputSelection.Xbox360;
+        _padDs4.Checked = p == PadOutputSelection.DualShock4;
     }
 
     /// <summary>Tooltip text; Windows limits it to 63 characters.</summary>

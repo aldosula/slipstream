@@ -9,9 +9,10 @@ namespace Slipstream.Hub.Output;
 /// <summary>
 /// A virtual Xbox 360 controller through ViGEmBus. AutoSubmitReport is off and each Apply ends in
 /// exactly one SubmitReport. Rumble from the game is reported back to the phone in STATUS
-/// (LargeMotor and SmallMotor bytes scaled by 257 to 0..65535).
+/// (LargeMotor and SmallMotor bytes scaled by 257 to 0..65535). It takes wheel frames (PROTOCOL.md
+/// section 10) and pad frames (section 12.5), so one virtual pad can serve both modes.
 /// </summary>
-public sealed class ViGEmX360Output : IOutputDevice, IRumbleSource, IRetryableOutput
+public sealed class ViGEmX360Output : IOutputDevice, IPadOutputDevice, IRumbleSource, IRetryableOutput
 {
     // Each XUSB bit of the Core mapping, paired with the library's named button. Setting buttons by
     // name keeps this correct whatever bit layout the library uses internally.
@@ -113,6 +114,35 @@ public sealed class ViGEmX360Output : IOutputDevice, IRumbleSource, IRetryableOu
             try
             {
                 pad.SetAxisValue(Xbox360Axis.LeftThumbX, frame.X360LeftThumbX);
+                pad.SetAxisValue(Xbox360Axis.RightThumbY, frame.X360RightThumbY);
+                pad.SetSliderValue(Xbox360Slider.LeftTrigger, frame.X360LeftTrigger);
+                pad.SetSliderValue(Xbox360Slider.RightTrigger, frame.X360RightTrigger);
+                X360Buttons b = frame.X360Buttons;
+                foreach ((X360Buttons bit, Xbox360Button button) in ButtonMap)
+                    pad.SetButtonState(button, (b & bit) != 0);
+                pad.SubmitReport();
+            }
+            catch (Exception ex)
+            {
+                DisconnectLocked();
+                _state = OutputState.Faulted;
+                _detail = $"The virtual Xbox 360 controller stopped working ({ex.GetType().Name}). Press Retry.";
+            }
+        }
+    }
+
+    /// <summary>Controller mode: all four thumb axes, both triggers and the buttons, one SubmitReport.</summary>
+    public void Apply(in PadOutputFrame frame)
+    {
+        lock (_gate)
+        {
+            IXbox360Controller? pad = _pad;
+            if (pad is null) return;
+            try
+            {
+                pad.SetAxisValue(Xbox360Axis.LeftThumbX, frame.X360LeftThumbX);
+                pad.SetAxisValue(Xbox360Axis.LeftThumbY, frame.X360LeftThumbY);
+                pad.SetAxisValue(Xbox360Axis.RightThumbX, frame.X360RightThumbX);
                 pad.SetAxisValue(Xbox360Axis.RightThumbY, frame.X360RightThumbY);
                 pad.SetSliderValue(Xbox360Slider.LeftTrigger, frame.X360LeftTrigger);
                 pad.SetSliderValue(Xbox360Slider.RightTrigger, frame.X360RightTrigger);

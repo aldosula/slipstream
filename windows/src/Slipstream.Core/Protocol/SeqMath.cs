@@ -1,6 +1,6 @@
 namespace Slipstream.Core.Protocol;
 
-/// <summary>Serial-number and pulse counter arithmetic (PROTOCOL.md section 9, rules 3 and 4).</summary>
+/// <summary>Serial-number, pulse counter and tap counter arithmetic (PROTOCOL.md section 9 rules 3 and 4, section 12.4 rule 3).</summary>
 public static class SeqMath
 {
     /// <summary>True when seq <paramref name="a"/> is newer than <paramref name="b"/>: d = (a - b) mod 2^32, newer iff 0 &lt; d &lt; 2^31.</summary>
@@ -18,5 +18,12 @@ public static class SeqMath
     {
         int d = (newValue - oldValue) & 0xFF;
         return d is >= 1 and <= 127 ? d : 0;
+    }
+
+    /// <summary>Taps to account for from a wrapping 4-bit tap counter: (new - old) mod 16 when in 1..7, else 0 (a reset).</summary>
+    public static int TapDelta(int newValue, int oldValue)
+    {
+        int d = (newValue - oldValue) & 0xF;
+        return d is >= 1 and <= 7 ? d : 0;
     }
 }

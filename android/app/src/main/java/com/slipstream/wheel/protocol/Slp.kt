@@ -12,6 +12,7 @@ object Slp {
     const val TYPE_INPUT: Byte = 1
     const val TYPE_STATUS: Byte = 2
     const val TYPE_BEACON: Byte = 3
+    const val TYPE_PAD: Byte = 4
 
     const val HEADER_LEN = 4
     const val TAG_LEN = 8
@@ -22,6 +23,13 @@ object Slp {
     const val BEACON_MIN_LEN = 17
     const val BEACON_MAX_NAME = 32
 
+    /** PAD (section 12): controller mode, 76 bytes. */
+    const val PAD_LEN = 76
+    const val PAD_BODY_LEN = PAD_LEN - TAG_LEN
+
+    /** The largest packet the phone sends. Transports size their send buffers for it. */
+    const val MAX_PACKET_LEN = PAD_LEN
+
     const val PORT_UDP = 47800
     const val PORT_BEACON = 47801
     const val PORT_TCP = 47802
@@ -31,9 +39,19 @@ object Slp {
     const val FLAG_CALIBRATING = 0x02
     const val FLAG_MULTIPATH = 0x04
 
+    /** PAD flags, byte 41 (bit0 PAUSED and bit2 MULTIPATH are shared with INPUT). */
+    const val FLAG_MOTION = 0x08
+    const val FLAG_STYLE_PS = 0x10
+    const val PAD_FLAGS_MASK = FLAG_PAUSED or FLAG_MULTIPATH or FLAG_MOTION or FLAG_STYLE_PS
+
     /** Buttons bitmask: bits 0..23 are used, 24..31 reserved. */
     const val BUTTONS_USED_MASK = 0x00FF_FFFF
     const val PULSE_CHANNELS = 8
+
+    /** PAD canonical buttons (section 12.2): bits 0..17, one 4-bit tap counter each. */
+    const val PAD_BUTTONS = 18
+    const val PAD_BUTTONS_MASK = (1 shl PAD_BUTTONS) - 1
+    const val PAD_TAP_BYTES = PAD_BUTTONS / 2
 
     /** DSCP EF as a TOS byte: the Wi-Fi WMM voice queue. */
     const val TOS_EF = 0xB8

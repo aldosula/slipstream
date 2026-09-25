@@ -28,3 +28,26 @@ internal sealed class ConsoleOutput : IOutputDevice
 
     public void Dispose() { }
 }
+
+/// <summary>
+/// The headless hub's controller-mode pad: it only counts frames. It reports the kind the engine asked for
+/// (DualShock 4 or Xbox 360), so the stats show which pad a real hub would have plugged in.
+/// </summary>
+internal sealed class ConsolePadOutput : IPadOutputDevice
+{
+    private long _applies;
+
+    public ConsolePadOutput(OutputKind kind) => Kind = kind;
+
+    public string Name => Kind == OutputKind.DualShock4 ? "Console (DualShock 4)" : "Console (Xbox 360)";
+    public OutputKind Kind { get; }
+    public OutputState State => OutputState.Ready;
+    public string StateDetail => "Headless hub: the pad is shown on the console, no virtual controller is created.";
+    public long Applies => Interlocked.Read(ref _applies);
+
+    public void Apply(in PadOutputFrame frame) => Interlocked.Increment(ref _applies);
+
+    public void Neutral() { }
+
+    public void Dispose() { }
+}
