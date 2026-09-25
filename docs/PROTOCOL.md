@@ -64,7 +64,7 @@ on the hub screen, never over the network.
 | 0 | 1 | magic0 | `0x53` ('S') |
 | 1 | 1 | magic1 | `0x4C` ('L') |
 | 2 | 1 | version | `1` |
-| 3 | 1 | type | `1` INPUT, `2` STATUS, `3` BEACON |
+| 3 | 1 | type | `1` INPUT, `2` STATUS, `3` BEACON, `4` PAD (section 12) |
 
 A receiver drops any packet whose magic, version, type or exact length is wrong.
 
@@ -140,7 +140,7 @@ beacon whose fingerprint matches.
 ## 8. TCP framing (USB link, port 47802)
 
 Each message is `u16 length` followed by `length` bytes of one INPUT or STATUS packet.
-Both ends set `TCP_NODELAY`. A frame whose length is not 52 (hub side) or 44 (phone side)
+Both ends set `TCP_NODELAY`. A frame whose length is not 52 or 76 (hub side) or 44 (phone side)
 closes the connection. The hub listens on `127.0.0.1` only; the phone connects to
 `127.0.0.1:47802`, which `adb reverse tcp:47802 tcp:47802` tunnels to the PC. The phone must
 dial the IPv4 literal `127.0.0.1`; the platform loopback on Android is `::1`, which the tunnel
@@ -215,3 +215,111 @@ Bluetooth HID mode (phone is the device, no hub): report ID 1, five 16-bit axes
 | Failsafe | 200 ms |
 | Pulse press / gap | 60 ms / 40 ms |
 | UDP DSCP on the phone | EF (TOS byte 0xB8), which maps to the Wi-Fi WMM voice queue |
+
+## 12. PAD (type 4, phone -> hub, exactly 76 bytes), controller mode, added in 0.2.0
+
+Controller mode turns the phone into a PlayStation-style or Xbox-style gamepad. It uses the same
+link, epoch, sequence space, transports, multipath, STATUS replies and failsafe as the wheel. The
+phone sends PAD packets instead of INPUT packets while it is in controller mode; one link never
+mixes the two within 300 ms. A 0.1.0 hub drops type 4 as an unknown type.
+
+### 12.1 Layout
+
+| Off | Size | Type | Field | Meaning |
+|---|---|---|---|---|
+| 0 | 4 | | header | type = 4 |
+| 4 | 4 | u32 | epoch | as INPUT |
+| 8 | 4 | u32 | seq | as INPUT, same counter (a mode switch does not reset it) |
+| 12 | 4 | u32 | t_us | as INPUT |
+| 16 | 2 | i16 | lx | left stick X, -32767 left .. +32767 right |
+| 18 | 2 | i16 | ly | left stick Y, -32767 down .. +32767 up |
+| 20 | 2 | i16 | rx | right stick X |
+| 22 | 2 | i16 | ry | right stick Y, +up |
+| 24 | 2 | u16 | l2 | left trigger 0..65535 (L2 / LT) |
+| 26 | 2 | u16 | r2 | right trigger (R2 / RT) |
+| 28 | 4 | u32 | buttons | held state, canonical bits in 12.2; bits 18..31 reserved, send 0 |
+| 32 | 9 | u4[18] | taps | 4-bit wrapping press counter per canonical button; button 2k in the low nibble of byte 32+k, button 2k+1 in the high nibble |
+| 41 | 1 | u8 | flags | bit0 `PAUSED`, bit2 `MULTIPATH` (as INPUT), bit3 `MOTION` (gyro and accel fields are valid), bit4 `STYLE_PS` (1 = PlayStation layout, 0 = Xbox layout). Others 0 |
+| 42 | 2 | u16 | rtt_100us | as INPUT |
+| 44 | 2 | u16 | touch0_x | touchpad finger 0, 0 left .. 65535 right |
+| 46 | 2 | u16 | touch0_y | 0 top .. 65535 bottom |
+| 48 | 2 | u16 | touch1_x | finger 1 |
+| 50 | 2 | u16 | touch1_y | |
+| 52 | 1 | u8 | touch0_id | bit7 active, bits 0..6 tracking id (increments, wrapping, on each new touch) |
+| 53 | 1 | u8 | touch1_id | same |
+| 54 | 6 | i16[3] | gyro | angular rate x, y, z in 1/16 degree per second (+-2048 dps) |
+| 60 | 6 | i16[3] | accel | acceleration x, y, z in 1/4096 g (+-8 g) |
+| 66 | 2 | u16 | reserved | 0 |
+| 68 | 8 | | tag | `tag(bytes[0..68))` |
+
+Motion axes are in the controller frame, phone held in landscape with the screen facing the
+player: +x to the player's right, +y up, +z out of the screen toward the player. Rotation signs
+follow the right-hand rule on those axes.
+
+### 12.2 Canonical buttons
+
+| Bit | PlayStation | Xbox |
+|---|---|---|
+| 0 | Cross | A |
+| 1 | Circle | B |
+| 2 | Square | X |
+| 3 | Triangle | Y |
+| 4 | L1 | LB |
+| 5 | R1 | RB |
+| 6 | L3 | Left stick press |
+| 7 | R3 | Right stick press |
+| 8 | Create | View |
+| 9 | Options | Menu |
+| 10 | PS | Xbox |
+| 11 | Touchpad click | (none) |
+| 12 | D-pad up | D-pad up |
+| 13 | D-pad down | D-pad down |
+| 14 | D-pad left | D-pad left |
+| 15 | D-pad right | D-pad right |
+| 16 | Mute | (none) |
+| 17 | (none) | Share |
+
+L2 / R2 (LT / RT) are analog only; there is no canonical button for them.
+
+### 12.3 Phone rules
+
+- A button's tap counter increments at the moment of press-down, in the same state snapshot that
+  first sets its held bit. The phone sends a packet immediately on every press and release
+  (send-on-change, 1 ms minimum spacing), so a tap is at least two packets.
+- Sticks are clamped to -32767..32767 (never -32768) after the deadzone and response curve.
+
+### 12.4 Hub rules (normative, in addition to section 9)
+
+1. PAD packets pass the same header, length, tag, epoch and sequence rules as INPUT (section 9,
+   rules 1 to 3), in the same sequence space.
+2. **Mode switch.** When the accepted packet type changes (INPUT to PAD or back), the hub puts the
+   previous mode's device to neutral, and takes the new packet's counters (pulses or taps) as the
+   baseline without emitting presses, exactly as on epoch adoption.
+3. **Tap scheduler, per button, per accepted PAD packet.** `d = (new - old) mod 16`; if `d` is not
+   in `1..7` then `d = 0`. Store `new`. If `d = 0`, nothing is scheduled. Otherwise
+   `replay = d - 1` if the held bit is set, else `d`; and `gap_first = true` if the virtual button
+   is down at this moment. The schedule is: if `gap_first`, release for `gap_ms`; then `replay`
+   taps, each `tap_ms` down then `gap_ms` up; then the button follows its held bit again. While a
+   schedule runs it drives the button; if one is already running, new replay taps are appended to
+   it and `gap_first` is ignored. At most 15 queued taps per button. Defaults: `tap_ms` = 50,
+   `gap_ms` = 40. Without loss this schedules nothing, so presses and releases pass through with
+   zero added delay.
+4. **Failsafe and PAUSED** (rule 6 for PAD): sticks centre, triggers 0, held buttons released,
+   touch fingers inactive, motion zero; running schedules finish.
+5. **Output device.** `STYLE_PS` selects a DualShock 4 (ViGEmBus); otherwise an Xbox 360
+   (ViGEmBus). A hub setting may force either. vJoy is not used in controller mode.
+
+### 12.5 Output mapping
+
+Xbox 360: `lx, ly, rx, ry` go straight to the thumb axes (XInput +y is up); `l2 >> 8` and
+`r2 >> 8` to the triggers; bits 0..10 and 12..15 to A, B, X, Y, LB, RB, LS, RS, Back, Start,
+Guide, D-pad. Bits 11, 16 and 17 have no Xbox 360 equivalent and are not sent.
+
+DualShock 4: stick X bytes `((v + 32767) * 255 + 32767) div 65534`; stick Y bytes use `-v`
+(DualShock 4 Y is 0 at the top); triggers `p >> 8`, with the digital L2 / R2 bits set while
+`(p >> 8) >= 8`; bits 0..11 to Cross, Circle, Square, Triangle, L1, R1, L3, R3, Share (Create),
+Options, PS, Touchpad; the D-pad bits become the hat (8 directions, opposite directions cancel).
+Touch fingers and motion go into the extended DualShock 4 report when the ViGEm client supports
+it: touch X to 0..1919 as `x * 1919 div 65535`, touch Y to 0..942 as `y * 942 div 65535`; gyro
+and accel are rescaled to the DualShock 4's own units by the hub. Bit 16 (Mute) is not sent.
+Rumble from the game returns to the phone through STATUS as in section 6.

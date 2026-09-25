@@ -133,3 +133,124 @@ The pairing key never crosses the network. A packet without a valid tag is dropp
 it touches any state. Beacons reveal only a name and a key fingerprint. The TCP port listens
 on loopback only. There is no cloud, account, telemetry or update check: nothing leaves the
 local network.
+
+## 7. Controller mode (0.2.0)
+
+The phone becomes a PlayStation-style or Xbox-style gamepad for PC games. Wire format:
+PROTOCOL.md section 12 (PAD). The wheel is unchanged; the user picks **Wheel** or
+**Controller** on the connect screen. Consoles themselves cannot be driven: PS4, PS5 and Xbox
+accept only authenticated controllers.
+
+### 7.1 Phone
+
+```
+com.slipstream.wheel
+  pad/        PadState (lock-free snapshot like ControllerState), PadButton (canonical bits),
+              TapCounters (4-bit), StickMath (deadzone, curve, fixed or floating origin),
+              TriggerMath, GyroAim, MotionSource (TYPE_GYROSCOPE + TYPE_ACCELEROMETER at
+              SENSOR_DELAY_FASTEST, rotated into the controller frame of PROTOCOL 12.1).
+  pad/layout/ PadLayout (list of PadControl), PadControl (id, kind, binding, cx, cy, width_dp,
+              height_dp, opacity, haptic, options), LayoutStore (JSON in SharedPreferences,
+              profiles), DefaultLayouts (PlayStation, Xbox; tables below).
+  ui/         PadActivity (play), PadSurfaceView (draw and multitouch), PadEditorView (edit),
+              PauseMenu, ProfilesActivity.
+  protocol/   PadPacketWriter (76 bytes, reused buffer and Mac).
+  link/       LinkEngine gains a packet source switch: INPUT (wheel) or PAD (controller).
+```
+
+Play screen rules:
+
+- Only playable controls are drawn. No edit button and no status chip while things are fine.
+- A **pause ring** sits at the top centre (16 dp drawn, 44 dp hit area, faint). Holding it for
+  1.5 s fills the ring and opens the pause menu: Resume, Edit layout, Switch profile, Exit. A
+  shorter touch does nothing. Opening the menu sets `PAUSED` until Resume.
+- The status chip appears only when the link degrades (smoothed RTT above 30 ms, loss above 5 %
+  over the last second, or no STATUS for 500 ms) and hides again after 3 s of good link.
+- **Touch model:** a finger belongs to the control it lands on until it lifts. Sticks and
+  triggers keep tracking the finger outside their bounds. Face buttons and the D-pad allow
+  **slide-to-press** (sliding a finger from Cross to Circle releases Cross and presses Circle),
+  a per-layout option on by default. Unbuffered touch dispatch on every down.
+- **Sticks:** fixed (origin at the control centre) or floating (origin where the thumb lands,
+  inside the control's area); radius = half the control width; deadzone default 8 %; response
+  curve; a firm press (touch major axis grows by 35 %) or a double tap toggles L3 / R3 for as
+  long as the finger stays down, option per stick.
+- **Triggers:** slide along the bar for 0..65535 like the wheel's pedals, or tap mode (full on
+  touch), per trigger.
+- **Touchpad (PlayStation):** up to two fingers reported as touch0 / touch1; a tap shorter than
+  200 ms that moves less than 4 % of the pad counts as a touchpad click (held for the tap).
+- **Motion:** raw gyro and accel are always sent with `MOTION` in PlayStation style. **Gyro aim**
+  (off by default) adds gyro yaw and pitch to the right stick: off, always, or only while a finger
+  is on the right stick; sensitivity and invert Y.
+- **Volume keys:** unmapped by default (they change the volume); mappable to any canonical button.
+- **Haptics:** a short tick on every press (per control strength, 0 = off); rumble from STATUS
+  drives the vibrator on its own thread.
+
+Editor (from the profile screen, or from the pause menu):
+
+- Drag to move, pinch or corner handles to resize, a 4 dp snap grid (toggle), per control:
+  opacity, haptic strength, and the options above. Mirror for left-handed play. Reset to default.
+- Controls cannot be placed inside the safe margin: 12 dp from the long (curved) edges and
+  clear of the display cutout. Overlapping controls are allowed but shown with a warning outline.
+- Profiles: the two built-ins (PlayStation, Xbox) cannot be deleted, only reset; any profile can
+  be duplicated, renamed, deleted. The last used profile is remembered.
+
+### 7.2 Default layouts
+
+Positions are the control centre as a fraction of the drawing area (the full landscape view
+minus system insets), `cx` from the left, `cy` from the top. Sizes are in dp. Taken from the
+approved drawings of 25/09/2026 (Note 20 Ultra, 882 x 411 dp).
+
+PlayStation:
+
+| Control | Kind | cx | cy | w x h dp |
+|---|---|---|---|---|
+| L2 | trigger (horizontal bar) | 0.134 | 0.105 | 171 x 47 |
+| R2 | trigger | 0.866 | 0.105 | 171 x 47 |
+| L1 | button | 0.134 | 0.230 | 171 x 39 |
+| R1 | button | 0.866 | 0.230 | 171 x 39 |
+| Create | button (pill) | 0.313 | 0.098 | 77 x 30 |
+| Touchpad | touchpad | 0.500 | 0.193 | 226 x 124 |
+| Options | button (pill) | 0.692 | 0.098 | 85 x 30 |
+| D-pad | dpad | 0.144 | 0.480 | 127 x 127 |
+| Left stick | stick (L3) | 0.303 | 0.764 | 116 x 116 |
+| Right stick | stick (R3) | 0.697 | 0.764 | 116 x 116 |
+| Face buttons | face cluster (Triangle top, Circle right, Cross bottom, Square left) | 0.856 | 0.500 | 154 x 154, buttons 50 dp |
+| PS | button (round) | 0.500 | 0.480 | 47 x 47 |
+| Mute | button (pill) | 0.500 | 0.598 | 55 x 25 |
+
+Xbox:
+
+| Control | Kind | cx | cy | w x h dp |
+|---|---|---|---|---|
+| LT | trigger | 0.134 | 0.105 | 171 x 47 |
+| RT | trigger | 0.866 | 0.105 | 171 x 47 |
+| LB | button | 0.134 | 0.230 | 171 x 39 |
+| RB | button | 0.866 | 0.230 | 171 x 39 |
+| Left stick | stick | 0.153 | 0.507 | 116 x 116 |
+| D-pad | dpad | 0.328 | 0.784 | 127 x 127 |
+| Right stick | stick | 0.681 | 0.764 | 116 x 116 |
+| Face buttons | face cluster (Y top, B right, A bottom, X left) | 0.856 | 0.500 | 154 x 154, buttons 50 dp |
+| View | button (round) | 0.413 | 0.419 | 36 x 36 |
+| Xbox | button (round) | 0.500 | 0.419 | 55 x 55 |
+| Menu | button (round) | 0.588 | 0.419 | 36 x 36 |
+| Share | button (pill) | 0.500 | 0.605 | 61 x 25 |
+
+Both layouts: pause ring at (0.500, 0.054). Face glyph colours: PlayStation Triangle teal,
+Circle red, Cross blue, Square pink; Xbox A green, B red, X blue, Y amber, on neutral buttons.
+On other screen sizes positions scale with the area and sizes stay in dp, shrunk uniformly only
+if two controls would otherwise overlap.
+
+### 7.3 Hub
+
+- `PadSession` state beside the wheel state inside `LinkSession` (same epoch and sequence),
+  `TapScheduler` per canonical button (PROTOCOL 12.4 rule 3, driven by the housekeeping tick),
+  mode switch neutralization (rule 2).
+- Output: `ViGEmDs4Output` (Nefarius.ViGEm.Client `IDualShock4Controller`, extended report for
+  touch and motion when the client exposes it) and the existing `ViGEmX360Output` fed from
+  `PadFrame`. Setting **Controller output**: Auto (by style), always Xbox 360, always
+  DualShock 4. The pad device is plugged in on the first accepted PAD packet and stays plugged
+  in until the hub quits or the output changes, so games do not see it vanish on a pause.
+- UI: the live panel shows the active mode (Wheel or Controller, style) and, in controller mode,
+  both sticks as dots in circles, trigger bars and button lamps named for the style.
+- CLI: `sim --pad [--style ps|xbox]` sends PAD packets with moving sticks and scripted taps;
+  `hub --stats-json` adds taps emitted per button and the last pad frame.

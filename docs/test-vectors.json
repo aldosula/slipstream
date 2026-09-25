@@ -347,5 +347,388 @@
       "in": 32767,
       "out": 65534
     }
+  ],
+  "pad": [
+    {
+      "fields": {
+        "epoch": 439041101,
+        "seq": 3,
+        "t_us": 123460789,
+        "lx": 0,
+        "ly": 0,
+        "rx": 0,
+        "ry": 0,
+        "l2": 0,
+        "r2": 0,
+        "buttons": 0,
+        "taps": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "flags": 0,
+        "rtt_100us": 0,
+        "touch": [
+          {
+            "x": 0,
+            "y": 0,
+            "id": 0,
+            "active": false
+          },
+          {
+            "x": 0,
+            "y": 0,
+            "id": 0,
+            "active": false
+          }
+        ],
+        "gyro": [
+          0,
+          0,
+          0
+        ],
+        "accel": [
+          0,
+          0,
+          0
+        ]
+      },
+      "hex": "534c01044d3c2b1a03000000b5dc5b0700000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000c7a0b00d6ebc4e77"
+    },
+    {
+      "fields": {
+        "epoch": 439041101,
+        "seq": 4,
+        "t_us": 123462789,
+        "lx": -32767,
+        "ly": 32767,
+        "rx": 12345,
+        "ry": -23456,
+        "l2": 65535,
+        "r2": 4096,
+        "buttons": 135201,
+        "taps": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          3,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          15,
+          0,
+          0,
+          0,
+          0,
+          7
+        ],
+        "flags": 28,
+        "rtt_100us": 37,
+        "touch": [
+          {
+            "x": 65535,
+            "y": 0,
+            "id": 5,
+            "active": true
+          },
+          {
+            "x": 32768,
+            "y": 40000,
+            "id": 127,
+            "active": true
+          }
+        ],
+        "gyro": [
+          -32767,
+          1600,
+          32767
+        ],
+        "accel": [
+          0,
+          -4096,
+          4096
+        ]
+      },
+      "hex": "534c01044d3c2b1a0400000085e45b070180ff7f393060a4ffff0010211002000100300000000f00701c2500ffff00000080409c85ff01804006ff7f000000f0001000004022da12f4203a10"
+    },
+    {
+      "fields": {
+        "epoch": 4294967295,
+        "seq": 4294967295,
+        "t_us": 4294967295,
+        "lx": 32767,
+        "ly": -32767,
+        "rx": -1,
+        "ry": 1,
+        "l2": 1,
+        "r2": 65534,
+        "buttons": 262143,
+        "taps": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          0,
+          8,
+          9
+        ],
+        "flags": 1,
+        "rtt_100us": 65535,
+        "touch": [
+          {
+            "x": 100,
+            "y": 200,
+            "id": 0,
+            "active": false
+          },
+          {
+            "x": 0,
+            "y": 0,
+            "id": 0,
+            "active": false
+          }
+        ],
+        "gyro": [
+          1,
+          -1,
+          0
+        ],
+        "accel": [
+          32767,
+          -32767,
+          0
+        ]
+      },
+      "hex": "534c0104ffffffffffffffffffffffffff7f0180ffff01000100feffffff030021436587a9cbed0f9801ffff6400c8000000000000000100ffff0000ff7f0180000000008e19bce839030821"
+    }
+  ],
+  "pad_frame": {
+    "packet_hex": "534c01044d3c2b1a0400000085e45b070180ff7f393060a4ffff0010211002000100300000000f00701c2500ffff00000080409c85ff01804006ff7f000000f0001000004022da12f4203a10",
+    "hex": "4c00534c01044d3c2b1a0400000085e45b070180ff7f393060a4ffff0010211002000100300000000f00701c2500ffff00000080409c85ff01804006ff7f000000f0001000004022da12f4203a10"
+  },
+  "pad_tamper": {
+    "note": "pad[1] with byte 53 (touch1 id) xor 0x01; tag must fail",
+    "hex": "534c01044d3c2b1a0400000085e45b070180ff7f393060a4ffff0010211002000100300000000f00701c2500ffff00000080409c85fe01804006ff7f000000f0001000004022da12f4203a10"
+  },
+  "tap_delta": [
+    {
+      "new": 1,
+      "old": 0,
+      "taps": 1
+    },
+    {
+      "new": 0,
+      "old": 15,
+      "taps": 1
+    },
+    {
+      "new": 5,
+      "old": 5,
+      "taps": 0
+    },
+    {
+      "new": 7,
+      "old": 0,
+      "taps": 7
+    },
+    {
+      "new": 8,
+      "old": 0,
+      "taps": 0
+    },
+    {
+      "new": 9,
+      "old": 0,
+      "taps": 0
+    },
+    {
+      "new": 2,
+      "old": 12,
+      "taps": 6
+    },
+    {
+      "new": 15,
+      "old": 0,
+      "taps": 0
+    }
+  ],
+  "tap_schedule": [
+    {
+      "output_down": false,
+      "held": false,
+      "d": 0,
+      "gap_first": false,
+      "replay_taps": 0
+    },
+    {
+      "output_down": false,
+      "held": false,
+      "d": 1,
+      "gap_first": false,
+      "replay_taps": 1
+    },
+    {
+      "output_down": false,
+      "held": false,
+      "d": 3,
+      "gap_first": false,
+      "replay_taps": 3
+    },
+    {
+      "output_down": false,
+      "held": true,
+      "d": 0,
+      "gap_first": false,
+      "replay_taps": 0
+    },
+    {
+      "output_down": false,
+      "held": true,
+      "d": 1,
+      "gap_first": false,
+      "replay_taps": 0
+    },
+    {
+      "output_down": false,
+      "held": true,
+      "d": 3,
+      "gap_first": false,
+      "replay_taps": 2
+    },
+    {
+      "output_down": true,
+      "held": false,
+      "d": 0,
+      "gap_first": false,
+      "replay_taps": 0
+    },
+    {
+      "output_down": true,
+      "held": false,
+      "d": 1,
+      "gap_first": true,
+      "replay_taps": 1
+    },
+    {
+      "output_down": true,
+      "held": false,
+      "d": 3,
+      "gap_first": true,
+      "replay_taps": 3
+    },
+    {
+      "output_down": true,
+      "held": true,
+      "d": 0,
+      "gap_first": false,
+      "replay_taps": 0
+    },
+    {
+      "output_down": true,
+      "held": true,
+      "d": 1,
+      "gap_first": true,
+      "replay_taps": 0
+    },
+    {
+      "output_down": true,
+      "held": true,
+      "d": 3,
+      "gap_first": true,
+      "replay_taps": 2
+    }
+  ],
+  "map_ds4_axis": [
+    {
+      "in": -32767,
+      "out": 0
+    },
+    {
+      "in": -16384,
+      "out": 64
+    },
+    {
+      "in": -1,
+      "out": 127
+    },
+    {
+      "in": 0,
+      "out": 128
+    },
+    {
+      "in": 1,
+      "out": 128
+    },
+    {
+      "in": 16384,
+      "out": 191
+    },
+    {
+      "in": 32767,
+      "out": 255
+    }
+  ],
+  "map_ds4_axis_y": [
+    {
+      "in": -32767,
+      "out": 255
+    },
+    {
+      "in": 0,
+      "out": 128
+    },
+    {
+      "in": 32767,
+      "out": 0
+    }
+  ],
+  "map_ds4_trigger_digital": [
+    {
+      "in": 0,
+      "out": false
+    },
+    {
+      "in": 2047,
+      "out": false
+    },
+    {
+      "in": 2048,
+      "out": true
+    },
+    {
+      "in": 65535,
+      "out": true
+    }
   ]
 }

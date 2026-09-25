@@ -16,8 +16,9 @@ import os
 import struct
 
 MAGIC0, MAGIC1, VERSION = 0x53, 0x4C, 1          # "SL", version 1
-T_INPUT, T_STATUS, T_BEACON = 1, 2, 3
-INPUT_LEN, STATUS_LEN, TAG_LEN = 52, 44, 8
+T_INPUT, T_STATUS, T_BEACON, T_PAD = 1, 2, 3, 4
+INPUT_LEN, STATUS_LEN, PAD_LEN, TAG_LEN = 52, 44, 76, 8
+PAD_BUTTONS = 18                                   # canonical pad buttons, bits 0..17
 B32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
 
 
@@ -90,6 +91,30 @@ def beacon_packet(key, f):
                        f["udp_port"], f["tcp_port"], fingerprint(key), len(name)) + name
 
 
+def pack_taps(taps):
+    """18 four-bit tap counters, button 2k in the low nibble of byte k, 2k+1 in the high nibble."""
+    assert len(taps) == PAD_BUTTONS and all(0 <= t <= 15 for t in taps)
+    return bytes((taps[2 * k] & 0xF) | ((taps[2 * k + 1] & 0xF) << 4) for k in range(PAD_BUTTONS // 2))
+
+
+def pad_packet(key, f):
+    t0, t1 = f["touch"]
+    body = struct.pack(
+        "<BBBBIIIhhhhHHI9sBHHHHHBBhhhhhhH",
+        MAGIC0, MAGIC1, VERSION, T_PAD,
+        f["epoch"], f["seq"], f["t_us"],
+        f["lx"], f["ly"], f["rx"], f["ry"], f["l2"], f["r2"],
+        f["buttons"], pack_taps(f["taps"]),
+        f["flags"], f["rtt_100us"],
+        t0["x"], t0["y"], t1["x"], t1["y"],
+        (0x80 if t0["active"] else 0) | (t0["id"] & 0x7F),
+        (0x80 if t1["active"] else 0) | (t1["id"] & 0x7F),
+        *f["gyro"], *f["accel"], 0,
+    )
+    assert len(body) == PAD_LEN - TAG_LEN, len(body)
+    return body + tag(key, body)
+
+
 def frame(packet):
     return struct.pack("<H", len(packet)) + packet
 
@@ -119,6 +144,40 @@ def x360_trigger(p):
     return p >> 8
 
 
+def tap_delta(new, old):
+    """Taps to account for from a 4-bit tap counter. >=8 is a reset, 0 taps."""
+    d = (new - old) & 0xF
+    return d if 1 <= d <= 7 else 0
+
+
+def tap_schedule(output_down, held, d):
+    """Reference tap scheduler (PROTOCOL.md 12.4) for one button on one accepted PAD packet.
+
+    output_down: whether the virtual button is currently down (held or a replayed tap).
+    Returns (gap_first, replay_taps): release for gap_ms first if gap_first, then replay_taps
+    taps of tap_ms down and gap_ms up, then follow the held bit.
+    """
+    if d == 0:
+        return (False, 0)
+    replay = d - 1 if held else d
+    return (output_down, replay)
+
+
+def ds4_axis(v):
+    """PAD stick axis (-32767..32767, +x right) to DualShock 4 byte 0..255, center 128."""
+    return ((v + 32767) * 255 + 32767) // 65534
+
+
+def ds4_axis_y(v):
+    """PAD stick Y (+y up) to DualShock 4 byte, where 0 is up."""
+    return ds4_axis(-v)
+
+
+def ds4_trigger_digital(p):
+    """DualShock 4 digital L2/R2 bit from an analog trigger."""
+    return (p >> 8) >= 8
+
+
 def hid_steer(steer):
     """Bluetooth HID report value for the steering axis, 0..65534 (center 32767)."""
     return steer + 32767
@@ -146,6 +205,23 @@ def main():
              output=0x82, hub_flags=0),
     ]
     beacon = dict(udp_port=47800, tcp_port=47802, name="RACING-PC")
+    no_touch = dict(x=0, y=0, id=0, active=False)
+    pads = [
+        dict(epoch=0x1A2B3C4D, seq=3, t_us=123460789, lx=0, ly=0, rx=0, ry=0, l2=0, r2=0,
+             buttons=0, taps=[0] * 18, flags=0, rtt_100us=0,
+             touch=[no_touch, no_touch], gyro=[0, 0, 0], accel=[0, 0, 0]),
+        dict(epoch=0x1A2B3C4D, seq=4, t_us=123462789, lx=-32767, ly=32767, rx=12345, ry=-23456,
+             l2=65535, r2=4096, buttons=(1 << 0) | (1 << 5) | (1 << 12) | (1 << 17),
+             taps=[1, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 15, 0, 0, 0, 0, 7], flags=0b0001_1100,
+             rtt_100us=37,
+             touch=[dict(x=65535, y=0, id=5, active=True), dict(x=32768, y=40000, id=127, active=True)],
+             gyro=[-32767, 1600, 32767], accel=[0, -4096, 4096]),
+        dict(epoch=0xFFFFFFFF, seq=0xFFFFFFFF, t_us=0xFFFFFFFF, lx=32767, ly=-32767, rx=-1, ry=1,
+             l2=1, r2=65534, buttons=(1 << 18) - 1, taps=list(range(1, 16)) + [0, 8, 9],
+             flags=0b0000_0001, rtt_100us=65535,
+             touch=[dict(x=100, y=200, id=0, active=False), no_touch],
+             gyro=[1, -1, 0], accel=[32767, -32767, 0]),
+    ]
 
     vectors = {
         "protocol": "SLP/1",
@@ -190,6 +266,26 @@ def main():
         "map_vjoy_pedal": [{"in": p, "out": vjoy_pedal(p)} for p in [0, 1, 2, 32767, 32768, 65534, 65535]],
         "map_x360_trigger": [{"in": p, "out": x360_trigger(p)} for p in [0, 255, 256, 32768, 65535]],
         "map_hid_steer": [{"in": s, "out": hid_steer(s)} for s in [-32767, 0, 32767]],
+        "pad": [{"fields": f, "hex": pad_packet(key, f).hex()} for f in pads],
+        "pad_frame": {"packet_hex": pad_packet(key, pads[1]).hex(),
+                      "hex": frame(pad_packet(key, pads[1])).hex()},
+        "pad_tamper": {
+            "note": "pad[1] with byte 53 (touch1 id) xor 0x01; tag must fail",
+            "hex": (lambda b: (b[:53] + bytes([b[53] ^ 1]) + b[54:]).hex())(pad_packet(key, pads[1])),
+        },
+        "tap_delta": [
+            {"new": n, "old": o, "taps": tap_delta(n, o)}
+            for n, o in [(1, 0), (0, 15), (5, 5), (7, 0), (8, 0), (9, 0), (2, 12), (15, 0)]
+        ],
+        "tap_schedule": [
+            {"output_down": od, "held": h, "d": d,
+             "gap_first": tap_schedule(od, h, d)[0], "replay_taps": tap_schedule(od, h, d)[1]}
+            for od in (False, True) for h in (False, True) for d in (0, 1, 3)
+        ],
+        "map_ds4_axis": [{"in": v, "out": ds4_axis(v)} for v in [-32767, -16384, -1, 0, 1, 16384, 32767]],
+        "map_ds4_axis_y": [{"in": v, "out": ds4_axis_y(v)} for v in [-32767, 0, 32767]],
+        "map_ds4_trigger_digital": [{"in": p, "out": ds4_trigger_digital(p)}
+                                    for p in [0, 2047, 2048, 65535]],
     }
 
     here = os.path.dirname(os.path.abspath(__file__))
